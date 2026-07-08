@@ -1,8 +1,5 @@
 import numpy as np
-
-
-
-import numpy as np
+from gall_filter import gall_filter
 
 def modified_lms_anc(raw_ecg: np.ndarray, lowpass_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, mu: float = 0.001, filter_order: int = 5, SVM_condition: bool = False) -> np.ndarray:
     '''
@@ -200,3 +197,102 @@ def blms_ecg_filter(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, r
         w = w + mu * weight_update_sum
         
     return e
+
+import numpy as np
+from typing import Tuple
+
+def hybrid_gall_kalman_ecg_filter(
+    raw_ecg: np.ndarray, 
+    ref_x: np.ndarray, 
+    ref_y: np.ndarray, 
+    ref_z: np.ndarray,
+    M_gall: int = 5,
+    beta_gall: float = 1.0,
+    alpha_gall: float = 0.0,
+    epsi_gall: float = 1e-3,
+    lambda_K: float = 0.99,
+    delta_K: float = 1.0
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    '''
+    Hybrid Filter Fusion: 3x Parallel GALL Filters combined by an Unforced Kalman Filter.
+    
+    Parameters
+    ----------
+    raw_ecg : np.ndarray
+        The noisy ECG signal (Primary input).
+    ref_x, ref_y, ref_z : np.ndarray
+        The reference signals from the 3-axis accelerometer.
+    M_gall : int, optional
+        Filter order for the local GALL filters. Default is 5.
+    beta_gall : float, optional
+        Forgetting factor for the GALL filters. Default is 1.0.
+    alpha_gall : float, optional
+        Laguerre pole magnitude for GALL filters. Default is 0.0.
+    epsi_gall : float, optional
+        Initialization constant for GALL filters. Default is 1e-3.
+    lambda_K : float, optional
+        Scalar forgetting factor for the Unforced Kalman Filter (RLS combiner). Default is 0.99.
+    delta_K : float, optional
+        Initialization constant for the Kalman state correlation matrix K. Default is 1.0.
+
+    Returns
+    -------
+    clean_ecg : np.ndarray
+        The final denoised ECG signal.
+    y_total : np.ndarray
+        The global noise estimate computed by the Kalman Filter.
+    weight_history : np.ndarray
+        Matrix of shape (N, 3) tracking the Kalman weights for X, Y, Z axes over time.
+    '''
+    
+    N = len(raw_ecg)
+
+    
+    #Parallel Noise Estimation (GALL)
+    
+    # Gall filter for each axis 
+    _, y_x, _, _ = gall_filter(x=ref_x, d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
+    _, y_y, _, _ = gall_filter(x=ref_y, d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
+    _, y_z, _, _ = gall_filter(x=ref_z, d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
+
+    
+    #Unforced Kalman Filter Fusion
+    
+    w = np.ones(3) / 3.0         # State vector (Wagi dla X, Y, Z) 
+    K_mat = np.eye(3) * delta_K  # State error correlation matrix (K[n])
+    
+    y_total = np.zeros(N)
+    clean_ecg = np.zeros(N)
+    weight_history = np.zeros((N, 3))
+
+    for n in range(N):
+        # 1. Input vector u[n] containing the GALL outputs for X, Y, Z axes
+        u_n = np.array([y_x[n], y_y[n], y_z[n]])
+        
+        # 2. Calculate the global noise estimate y_total[n] using the current weights w
+        y_total[n] = np.dot(w, u_n)
+        
+        
+        #Global Summer
+        
+        clean_ecg[n] = raw_ecg[n] - y_total[n]
+        
+        
+        # KALMAN STATE UPDATE (RLS Logic)
+        
+        # Równania śledzące z zerowym szumem procesu (process noise = 0)
+        Pi = np.dot(K_mat, u_n)
+        
+        # Calculate Kalman Gain
+        g_n = Pi / (lambda_K + np.dot(u_n, Pi))
+        
+        # Update weights based on the global error (clean_ecg)
+        w = w + g_n * clean_ecg[n]
+        
+        # Update the correlation matrix K[n]
+        K_mat = (K_mat - np.outer(g_n, Pi)) / lambda_K
+        
+        # Save the weight history for analysis
+        weight_history[n, :] = w
+        
+    return clean_ecg, y_total, weight_history
