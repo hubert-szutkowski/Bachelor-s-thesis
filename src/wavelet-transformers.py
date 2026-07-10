@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
+#Citation [8]
 
 class CNNSWT_1D(nn.Module):
     '''

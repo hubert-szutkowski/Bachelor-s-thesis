@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pywt
 import numpy as np
-
+#Citation [6]
 class DWT_1D_Layer(nn.Module):
     '''
     Discrete Wavelet Transform Layer.

@@ -3,7 +3,7 @@ import scipy.signal as signal
 import pywt
 from PyEMD import EMD
 
-def fir_filter(signal: np.ndarray, numtaps: int, cutoff: float, width: float = None, window: str = 'hamming', pass_zero: bool = True, scale: bool = True, fs: float = None) -> np.ndarray:
+def fir_filter(signal: np.ndarray, numtaps: int, cutoff: float, width: float = None, window: str = 'hamming', pass_zero: bool = True, scale: bool = True, fs: float = None) -> np.ndarray: #[5]
     """
     FIR filter design using the window method.
 
@@ -42,7 +42,7 @@ def fir_filter(signal: np.ndarray, numtaps: int, cutoff: float, width: float = N
     return filtered_signal
 
 
-def iir_filter(signal: np.ndarray, order: int, Wn: np.array, rp: float = None, rs: float = None, btype: str = 'lowpass', analog: bool = False, fs: float = None, output: str = 'ba', ftype: str = 'butter') -> np.ndarray:
+def iir_filter(signal: np.ndarray, order: int, Wn: np.array, rp: float = None, rs: float = None, btype: str = 'lowpass', analog: bool = False, fs: float = None, output: str = 'ba', ftype: str = 'butter') -> np.ndarray: #[5]
     """
     IIR filter design using the Butterworth method.
 
@@ -84,7 +84,7 @@ def iir_filter(signal: np.ndarray, order: int, Wn: np.array, rp: float = None, r
     return filtered_signal
 
 
-def moving_average(data: np.ndarray, smooth_interval: int = 2) -> np.ndarray:
+def moving_average(data: np.ndarray, smooth_interval: int = 2) -> np.ndarray: #[5]
     '''
     Function to smooth data using an optimized moving average filter.
 
@@ -111,7 +111,7 @@ def moving_average(data: np.ndarray, smooth_interval: int = 2) -> np.ndarray:
     return new_data
 
 
-def moving_median(data: np.ndarray, window_size: int = 2) -> np.ndarray:
+def moving_median(data: np.ndarray, window_size: int = 2) -> np.ndarray: #[5]
 
     '''
     ----------
@@ -134,7 +134,7 @@ def moving_median(data: np.ndarray, window_size: int = 2) -> np.ndarray:
     return new_data
 
 
-def wavelet_denoising(data: np.ndarray, wavelet: str = 'db4', level: int = 1) -> np.ndarray:
+def wavelet_denoising(data: np.ndarray, wavelet: str = 'db4', level: int = 1) -> np.ndarray: #[5]
     '''
     ----------
     data : array_like
@@ -155,7 +155,7 @@ def wavelet_denoising(data: np.ndarray, wavelet: str = 'db4', level: int = 1) ->
     new_data = pywt.waverec(coeffs, wavelet)
     return new_data
 
-def wavelet_baseline_removal(data: np.ndarray, wavelet: str = 'db8', level: int = 9) -> np.ndarray:
+def wavelet_baseline_removal(data: np.ndarray, wavelet: str = 'db8', level: int = 9) -> np.ndarray: #[5]
     '''
     Function to remove low-frequency noise (baseline wander) from ECG signals 
     using the Discrete Wavelet Transform (DWT).
@@ -183,7 +183,7 @@ def wavelet_baseline_removal(data: np.ndarray, wavelet: str = 'db8', level: int 
     return denoised_data
 
 
-def emd_ecg_denoising(data: np.ndarray, max_imf: int = 6, noise_components: int = 3) -> np.ndarray:
+def emd_ecg_denoising(data: np.ndarray, max_imf: int = 6, noise_components: int = 3) -> np.ndarray: #[5]
     '''
     Function to remove low-frequency noise from ECG signals using Empirical Mode Decomposition (EMD).
 

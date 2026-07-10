@@ -1,7 +1,7 @@
 import numpy as np
 from gall_filter import gall_filter
 
-def modified_lms_anc(raw_ecg: np.ndarray, lowpass_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, mu: float = 0.001, filter_order: int = 5, SVM_condition: bool = False) -> np.ndarray:
+def modified_lms_anc(raw_ecg: np.ndarray, lowpass_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, mu: float = 0.001, filter_order: int = 5, SVM_condition: bool = False) -> np.ndarray: #[1]
     '''
     Function to perform modified multi-reference LMS adaptive filtering.
     Uses a lowpass-filtered ECG for weight adaptation and raw ECG for final noise cancellation.
@@ -62,7 +62,7 @@ def modified_lms_anc(raw_ecg: np.ndarray, lowpass_ecg: np.ndarray, ref_x: np.nda
     return clean_ecg
 
 
-def rls_anc(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, filter_order: int = 5, lam: float = 0.99, delta: float = 1.0, SVM_condition: bool = False) -> np.ndarray:
+def rls_anc(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, filter_order: int = 5, lam: float = 0.99, delta: float = 1.0, SVM_condition: bool = False) -> np.ndarray: #[2]
     '''
     Function to perform multi-reference RLS adaptive filtering.
     Uses raw ECG and accelerometer data for noise cancellation.
@@ -128,7 +128,7 @@ def rls_anc(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np
 
 
 
-def blms_ecg_filter(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, L: int = 10, mu: float = 0.01, filter_order: int = 32, SVM_condition: bool = False) -> np.ndarray:
+def blms_ecg_filter(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, L: int = 10, mu: float = 0.01, filter_order: int = 32, SVM_condition: bool = False) -> np.ndarray: #[4]
     '''
     Block Least Mean Square (BLMS) adaptive filter for ECG motion artifact removal.
 
@@ -212,7 +212,7 @@ def hybrid_gall_kalman_ecg_filter(
     epsi_gall: float = 1e-3,
     lambda_K: float = 0.99,
     delta_K: float = 1.0
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]: #[3]
     '''
     Hybrid Filter Fusion: 3x Parallel GALL Filters combined by an Unforced Kalman Filter.
     
