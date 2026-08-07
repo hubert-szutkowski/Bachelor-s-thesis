@@ -21,7 +21,7 @@ def gall_filter(x: np.ndarray, d: np.ndarray, M: Optional[int] = None, beta: flo
     beta : float
         Forgetting factor (0 <= beta <= 1).
     alpha : float
-        Pole magnitude (0 <= alpha <= 1). alpha=0 is standard GAL.
+        Pole magnitude (0 <= alpha < 1). alpha=0 is standard GAL.
     epsi : float
         Small positive constant for initialization.
     k0 : np.ndarray, optional
@@ -32,7 +32,7 @@ def gall_filter(x: np.ndarray, d: np.ndarray, M: Optional[int] = None, beta: flo
     Returns
     -------
     err : np.ndarray
-        Error signal (Filtered ECG).
+        Error signal of shape (N,), i.e. the output of the last ladder stage (filtered ECG).
     y : np.ndarray
         Filter prediction (Noise estimate).
     h : np.ndarray
@@ -40,8 +40,15 @@ def gall_filter(x: np.ndarray, d: np.ndarray, M: Optional[int] = None, beta: flo
     k : np.ndarray
         Lattice reflection coefficients.
     '''
-    
-    N = len(x)
+
+    x = np.asarray(x, dtype=np.float64).ravel()
+    d = np.asarray(d, dtype=np.float64).ravel()
+    if x.size != d.size:
+        raise ValueError(f"x and d must have the same length, got {x.size} and {d.size}")
+    if not 0.0 <= alpha < 1.0:
+        raise ValueError("alpha must lie in [0, 1)")
+
+    N = x.size
 
     
     #LEARNING MODE
@@ -55,13 +62,14 @@ def gall_filter(x: np.ndarray, d: np.ndarray, M: Optional[int] = None, beta: flo
         
         y = np.zeros(N)
         D = np.zeros(M + 2)
-        err = np.zeros((N, M + 2))
+        err_out = np.zeros(N)
+        err_stage = np.zeros(M + 2)
         
         b_old = np.zeros(M + 1)
         bt_old = np.zeros(M + 1)
         
-        k = np.zeros(M + 1) if k0 is None else np.copy(k0)
-        h = np.zeros(M + 2) if h0 is None else np.copy(h0)
+        k = np.zeros(M + 1) if k0 is None else np.array(k0, dtype=np.float64, copy=True)
+        h = np.zeros(M + 2) if h0 is None else np.array(h0, dtype=np.float64, copy=True)
         
         sqrt_alpha = np.sqrt(1 - alpha**2)
 
@@ -70,7 +78,7 @@ def gall_filter(x: np.ndarray, d: np.ndarray, M: Optional[int] = None, beta: flo
             f[0] = alpha * b_old[0] + sqrt_alpha * x[n]
             b[0] = f[0]
             Q[0] = beta * Q[0] + b[0]**2
-            err[n, 0] = d[n]
+            err_stage[0] = d[n]
             
             # Save state for next iteration
             bt_old[:] = bt[:]
@@ -91,14 +99,14 @@ def gall_filter(x: np.ndarray, d: np.ndarray, M: Optional[int] = None, beta: flo
 
             # Ladder Section
             for m in range(M + 1):
-                D[m+1] = beta * D[m+1] + err[n, m] * b[m]
+                D[m+1] = beta * D[m+1] + err_stage[m] * b[m]
                 h[m+1] = D[m+1] / Q[m] if Q[m] > 0 else 0
-                err[n, m+1] = err[n, m] - h[m+1] * b[m]
+                err_stage[m+1] = err_stage[m] - h[m+1] * b[m]
 
+            err_out[n] = err_stage[-1]
             y[n] = np.dot(h[1:], b[:M+1])
 
-        # Return the final stage error (the clean signal)
-        return err[:, -1], y, h, k
+        return err_out, y, h, k
 
     
     #FREEZE (OUTPUT) MODE
@@ -107,15 +115,18 @@ def gall_filter(x: np.ndarray, d: np.ndarray, M: Optional[int] = None, beta: flo
         if k0 is None or h0 is None:
             raise ValueError("In Mode 2 (Freeze), k0 and h0 must be provided.")
             
-        k = np.copy(k0)
-        h = np.copy(h0)
+        k = np.array(k0, dtype=np.float64, copy=True)
+        h = np.array(h0, dtype=np.float64, copy=True)
         M_freeze = len(k) - 1
+        if h.size != M_freeze + 2:
+            raise ValueError(f"h0 must have length len(k0) + 1 = {M_freeze + 2}, got {h.size}")
         
         f = np.zeros(M_freeze + 1)
         b = np.zeros(M_freeze + 1)
         bt = np.zeros(M_freeze + 1)
         y = np.zeros(N)
-        err = np.zeros((N, M_freeze + 2))
+        err_out = np.zeros(N)
+        err_stage = np.zeros(M_freeze + 2)
         
         b_old = np.zeros(M_freeze + 1)
         bt_old = np.zeros(M_freeze + 1)
@@ -125,7 +136,7 @@ def gall_filter(x: np.ndarray, d: np.ndarray, M: Optional[int] = None, beta: flo
         for n in range(N):
             f[0] = alpha * b_old[0] + sqrt_alpha * x[n]
             b[0] = f[0]
-            err[n, 0] = d[n]
+            err_stage[0] = d[n]
             
             bt_old[:] = bt[:]
             b_old[:] = b[:]
@@ -138,8 +149,9 @@ def gall_filter(x: np.ndarray, d: np.ndarray, M: Optional[int] = None, beta: flo
 
             # Ladder Section
             for m in range(M_freeze + 1):
-                err[n, m+1] = err[n, m] - h[m+1] * b[m]
+                err_stage[m+1] = err_stage[m] - h[m+1] * b[m]
 
+            err_out[n] = err_stage[-1]
             y[n] = np.dot(h[1:], b[:M_freeze+1])
 
-        return err[:, -1], y, np.array([]), np.array([])
+        return err_out, y, h, k

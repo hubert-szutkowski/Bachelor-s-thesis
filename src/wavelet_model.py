@@ -26,12 +26,16 @@ class DWT_1D_Layer(nn.Module):
         self.register_buffer('filter_lpf', dec_lo.view(1, 1, -1).repeat(in_channels, 1, 1))
         self.register_buffer('filter_hpf', dec_hi.view(1, 1, -1).repeat(in_channels, 1, 1))
         
-        # Calculate padding to halve the spatial dimension for wavelet length 12
-        self.pad_dwt = 5 
-        
+        # Calculate padding to halve the spatial dimension for the given wavelet length
+        if wavelet.dec_len % 2 != 0:
+            raise ValueError(f"wavelet '{wavelet_name}' has an odd filter length ({wavelet.dec_len}); an even length is required")
+        self.pad_dwt = (wavelet.dec_len - 2) // 2
+
         # Separate convolutions for LPF and HPF branches (stride=1 to maintain dimension)
+        if out_channels % 2 != 0:
+            raise ValueError(f"out_channels must be even, got {out_channels}")
         branch_out_channels = out_channels // 2
-        
+
         self.conv_lpf = nn.Conv1d(in_channels, branch_out_channels, kernel_size=8, stride=1, padding='same')
         self.conv_hpf = nn.Conv1d(in_channels, branch_out_channels, kernel_size=8, stride=1, padding='same')
 
@@ -67,10 +71,12 @@ class IDWT_1D_Layer(nn.Module):
         self.register_buffer('filter_rec_lpf', rec_lo.view(1, 1, -1).repeat(out_channels, 1, 1))
         self.register_buffer('filter_rec_hpf', rec_hi.view(1, 1, -1).repeat(out_channels, 1, 1))
         
-        self.pad_idwt = 5
-        
+        if wavelet.rec_len % 2 != 0:
+            raise ValueError(f"wavelet '{wavelet_name}' has an odd filter length ({wavelet.rec_len}); an even length is required")
+        self.pad_idwt = (wavelet.rec_len - 2) // 2
+
         # Initial Deconvolution to process features before reconstruction
-        self.deconv = nn.ConvTranspose1d(in_channels, out_channels * 2, kernel_size=8, stride=1, padding=3)
+        self.deconv = nn.ConvTranspose1d(in_channels, out_channels * 2, kernel_size=7, stride=1, padding=3)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # 1. Feature processing
@@ -146,7 +152,7 @@ class WaveletCNNAutoencoder(nn.Module):
         self.dec6 = ConvBlock(20, 40, k=16, s=2, p=7, is_transpose=True) # Out: 40 x 1024
         
         # Output layer (No activation or dropout for signal reconstruction)
-        self.out_layer = nn.Conv1d(40, 1, k=15, s=1, padding='same')     # Out: 1 x 1024
+        self.out_layer = nn.Conv1d(40, 1, kernel_size=15, stride=1, padding='same')     # Out: 1 x 1024
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Encoder

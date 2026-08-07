@@ -74,7 +74,7 @@ class Time2Vec(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Input: (B, Seq, Features)
         # Time index encoding
-        time_seq = torch.arange(x.size(1), device=x.device, dtype=x.dtype).unsqueeze(1).expand(-1, x.size(2))
+        time_seq = (torch.arange(x.size(1), device=x.device, dtype=x.dtype) / max(x.size(1) - 1, 1)).unsqueeze(1).expand(-1, x.size(2))
         
         t_linear = self.w_linear * time_seq + self.phi_linear
         t_periodic = torch.sin(self.w_periodic * time_seq + self.phi_periodic)

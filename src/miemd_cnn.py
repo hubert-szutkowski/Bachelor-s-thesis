@@ -60,8 +60,9 @@ class MIEMD_Filter:
 class ECGD_Net_CNN(nn.Module):
     '''
     Deep CNN for Stage II Denoising.
-    Corrected architecture for 1D signals and regression output.
-    Input shape expected: (Batch, Channels=1, Sequence_Length)
+    Fully convolutional encoder-decoder for 1D signals and regression output.
+    Input shape expected: (Batch, Channels=1, Sequence_Length), with Sequence_Length divisible by 4.
+    Output shape: identical to the input.
     '''
     def __init__(self, seq_length: int = 1024):
         super().__init__()
@@ -92,20 +93,18 @@ class ECGD_Net_CNN(nn.Module):
             nn.ReLU()
         )
         
-        # Calculate flattened size dynamically
-        flattened_size = 32 * (seq_length // 4)
-        
-        # Fully Connected Layers for Reconstruction
         self.reconstructor = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(flattened_size, 256),
+            nn.ConvTranspose1d(in_channels=32, out_channels=32, kernel_size=4, stride=2, padding=1),
             nn.ReLU(),
-            # Output layer matches the original sequence length for regression! (Not SoftMax 1x2)
-            nn.Linear(256, seq_length)
+            nn.ConvTranspose1d(in_channels=32, out_channels=16, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(in_channels=16, out_channels=1, kernel_size=5, stride=1, padding='same')
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dim() != 3 or x.shape[1] != 1:
+            raise ValueError(f"expected input of shape (Batch, 1, Sequence_Length), got {tuple(x.shape)}")
+        if x.shape[2] % 4 != 0:
+            raise ValueError(f"sequence length must be divisible by 4, got {x.shape[2]}")
         features = self.feature_extractor(x)
-        output = self.reconstructor(features)
-        # Reshape back to (Batch, Channels, Seq_Length)
-        return output.view(-1, 1, self.seq_length)
+        return self.reconstructor(features)

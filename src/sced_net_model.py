@@ -2,8 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from scipy.signal import find_peaks
-from scipy.fft import fft, ifft
+from scipy.signal import find_peaks, resample
 
 #Citation [7]
 #SIGNAL PROCESSING (PRE & POST)
@@ -14,85 +13,113 @@ class ECGSignalProcessor:
     Handles the creation of the Stacked Cardiac Cycle (SCC) tensor 
     and the reconstruction of the 1D signal.
     '''
-    def __init__(self, target_length: int = 384, num_cycles: int = 32):
+    def __init__(self, target_length: int = 384, num_cycles: int = 32, min_cycle_length: int = 8):
         self.target_length = target_length
         self.num_cycles = num_cycles
-        
-    def fourier_interpolate(self, cycle: np.ndarray, target_len: int) -> np.ndarray:
-        '''Resamples a cycle to a target length using zero-padding in Fourier domain.'''
-        N = len(cycle)
-        if N == target_len:
-            return cycle
-            
-        freq_domain = fft(cycle)
-        if target_len > N:
-            # Upsampling: pad with zeros in the middle (high frequencies)
-            pad_len = target_len - N
-            insert_idx = N // 2 + 1
-            padded_freq = np.insert(freq_domain, insert_idx, np.zeros(pad_len))
-            resampled = np.real(ifft(padded_freq)) * (target_len / N)
-        else:
-            # Downsampling: truncate high frequencies
-            keep_len = target_len // 2
-            truncated_freq = np.concatenate((freq_domain[:keep_len], freq_domain[-keep_len:]))
-            if target_len % 2 != 0: # handle odd lengths
-                 truncated_freq = np.concatenate((freq_domain[:keep_len+1], freq_domain[-keep_len:]))
-            resampled = np.real(ifft(truncated_freq)) * (target_len / N)
-        return resampled
+        self.min_cycle_length = min_cycle_length
 
-    def preprocess(self, ecg_signal: np.ndarray, r_peaks: np.ndarray) -> tuple:
+    def fourier_interpolate(self, cycle: np.ndarray, target_len: int) -> np.ndarray:
+        '''Resamples a cycle to a target length in the Fourier domain.'''
+        cycle = np.asarray(cycle, dtype=np.float64)
+        if cycle.size == target_len:
+            return cycle
+        return resample(cycle, target_len)
+
+    def segment_bounds(self, ecg_length: int, r_peaks: np.ndarray) -> list:
+        '''
+        Returns contiguous [start, end) bounds of consecutive cardiac cycles,
+        each delimited by the midpoints between neighbouring R-peaks.
+        '''
+        r_peaks = np.asarray(r_peaks, dtype=int)
+        if r_peaks.size < 2:
+            raise ValueError(f"at least 2 R-peaks are required, got {r_peaks.size}")
+
+        bounds = []
+        start = max(0, int(r_peaks[0]) - (int(r_peaks[1]) - int(r_peaks[0])) // 2)
+        for i in range(len(r_peaks) - 1):
+            if len(bounds) >= self.num_cycles:
+                break
+            end = min(ecg_length, (int(r_peaks[i]) + int(r_peaks[i + 1])) // 2)
+            if end > start:
+                bounds.append((start, end))
+            start = end
+        return bounds
+
+    def preprocess(self, ecg_signal: np.ndarray, r_peaks: np.ndarray, stats: tuple = None) -> tuple:
         '''
         Segments ECG into SCC Tensor.
-        Returns: SCC Tensor (32, 384), original cycle lengths, global min, global max
+
+        Parameters
+        ----------
+        ecg_signal : np.ndarray
+            The 1D ECG signal to be segmented.
+        r_peaks : np.ndarray
+            Sample indices of the detected R-peaks.
+        stats : tuple, optional
+            (g_min, g_max) to reuse for normalization. Pass the statistics obtained from the
+            noisy signal when encoding the corresponding clean target, otherwise the network
+            has to learn an implicit rescaling and the reported SNR is biased.
+
+        Returns
+        -------
+        scc_matrix : np.ndarray
+            SCC tensor of shape (num_cycles, target_length).
+        original_lengths : list
+            Sample count of every cycle before resampling; 0 marks a padded row.
+        g_min : float
+            Minimum used for normalization.
+        g_max : float
+            Maximum used for normalization.
         '''
-        cycles = []
-        original_lengths = []
-        
-        # Segment between R-peaks (simplified: midpoints between R-peaks)
-        for i in range(len(r_peaks) - 1):
-            if len(cycles) >= self.num_cycles:
-                break
-                
-            start = r_peaks[i] - (r_peaks[i] - (0 if i==0 else r_peaks[i-1])) // 2
-            end = r_peaks[i] + (r_peaks[i+1] - r_peaks[i]) // 2
-            
-            cycle = ecg_signal[start:end]
-            original_lengths.append(len(cycle))
-            
-            interpolated = self.fourier_interpolate(cycle, self.target_length)
-            cycles.append(interpolated)
-            
-        # Pad with zeros if less than required cycles (handling edge case)
-        while len(cycles) < self.num_cycles:
-            cycles.append(np.zeros(self.target_length))
-            original_lengths.append(0)
-            
-        scc_matrix = np.vstack(cycles)
-        
-        # Min-Max Normalization
-        g_min = np.min(scc_matrix)
-        g_max = np.max(scc_matrix)
-        if g_max > g_min:
-            scc_matrix = (scc_matrix - g_min) / (g_max - g_min)
-            
+        ecg_signal = np.asarray(ecg_signal, dtype=np.float64).ravel()
+        bounds = self.segment_bounds(ecg_signal.size, r_peaks)
+
+        scc_matrix = np.zeros((self.num_cycles, self.target_length), dtype=np.float64)
+        original_lengths = [0] * self.num_cycles
+
+        for i, (start, end) in enumerate(bounds):
+            if end - start < self.min_cycle_length:
+                continue
+            scc_matrix[i] = self.fourier_interpolate(ecg_signal[start:end], self.target_length)
+            original_lengths[i] = end - start
+
+        valid = np.array(original_lengths) > 0
+        if not valid.any():
+            raise ValueError("no valid cardiac cycle could be extracted")
+
+        if stats is None:
+            g_min = float(scc_matrix[valid].min())
+            g_max = float(scc_matrix[valid].max())
+        else:
+            g_min, g_max = float(stats[0]), float(stats[1])
+
+        scale = g_max - g_min
+        if scale <= 0:
+            scale = 1.0
+        scc_matrix = (scc_matrix - g_min) / scale
+        scc_matrix[~valid] = 0.0
+
         return scc_matrix, original_lengths, g_min, g_max
 
     def postprocess(self, scc_matrix: np.ndarray, original_lengths: list, g_min: float, g_max: float) -> np.ndarray:
         '''Reconstructs the 1D ECG signal from the denoised SCC Tensor.'''
-        # Denormalize
-        scc_matrix = scc_matrix * (g_max - g_min) + g_min
-        
+        scc_matrix = np.asarray(scc_matrix, dtype=np.float64).reshape(self.num_cycles, self.target_length)
+
+        scale = g_max - g_min
+        if scale <= 0:
+            scale = 1.0
+        scc_matrix = scc_matrix * scale + g_min
+
         reconstructed_1d = []
         for i in range(min(self.num_cycles, len(original_lengths))):
-            orig_len = original_lengths[i]
+            orig_len = int(original_lengths[i])
             if orig_len == 0:
                 continue
-            
-            denoised_cycle = scc_matrix[i, :]
-            restored_cycle = self.fourier_interpolate(denoised_cycle, orig_len)
-            reconstructed_1d.extend(restored_cycle)
-            
-        return np.array(reconstructed_1d)
+            reconstructed_1d.append(self.fourier_interpolate(scc_matrix[i, :], orig_len))
+
+        if not reconstructed_1d:
+            return np.zeros(0, dtype=np.float64)
+        return np.concatenate(reconstructed_1d)
 
 
 #SCED-Net NEURAL ARCHITECTURE

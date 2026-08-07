@@ -1,5 +1,36 @@
 import numpy as np
-from gall_filter import gall_filter
+from typing import Tuple
+
+try:
+    from .gall_filter import gall_filter
+except ImportError:
+    from gall_filter import gall_filter
+
+
+def _build_reference_matrix(ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, SVM_condition: bool) -> np.ndarray:
+    '''
+    Stacks the accelerometer channels into a (num_channels, N) matrix.
+    If SVM_condition is True the three axes are collapsed into the Signal Vector Magnitude.
+    '''
+    ref_x = np.asarray(ref_x, dtype=np.float64).ravel()
+    ref_y = np.asarray(ref_y, dtype=np.float64).ravel()
+    ref_z = np.asarray(ref_z, dtype=np.float64).ravel()
+    if not (ref_x.size == ref_y.size == ref_z.size):
+        raise ValueError("ref_x, ref_y and ref_z must have the same length")
+
+    if SVM_condition:
+        return np.sqrt(ref_x**2 + ref_y**2 + ref_z**2)[None, :]
+    return np.stack((ref_x, ref_y, ref_z), axis=0)
+
+
+def _regressor(ref: np.ndarray, n: int, filter_order: int) -> np.ndarray:
+    '''
+    Causal regressor u(n) = [r(n), r(n-1), ..., r(n-filter_order+1)] for every reference channel,
+    flattened channel by channel.
+    '''
+    window = ref[:, n - filter_order + 1 : n + 1][:, ::-1]
+    return window.reshape(-1)
+
 
 def modified_lms_anc(raw_ecg: np.ndarray, lowpass_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, mu: float = 0.001, filter_order: int = 5, SVM_condition: bool = False) -> np.ndarray: #[1]
     '''
@@ -30,35 +61,31 @@ def modified_lms_anc(raw_ecg: np.ndarray, lowpass_ecg: np.ndarray, ref_x: np.nda
     clean_ecg : np.ndarray
         The denoised ECG signal after adaptive filtering.
     '''
-    
-    N = len(raw_ecg)
-    
-    if SVM_condition:
-        ref_svm = np.sqrt(ref_x**2 + ref_y**2 + ref_z**2)
-        num_channels = 1
-    else:
-        num_channels = 3
-        
-    w = np.zeros(num_channels * filter_order)
-    
+
+    raw_ecg = np.asarray(raw_ecg, dtype=np.float64).ravel()
+    lowpass_ecg = np.asarray(lowpass_ecg, dtype=np.float64).ravel()
+    ref = _build_reference_matrix(ref_x, ref_y, ref_z, SVM_condition)
+
+    N = raw_ecg.size
+    if lowpass_ecg.size != N or ref.shape[1] != N:
+        raise ValueError("raw_ecg, lowpass_ecg and the reference channels must have the same length")
+    if filter_order > N:
+        raise ValueError(f"filter_order ({filter_order}) exceeds signal length ({N})")
+
+    w = np.zeros(ref.shape[0] * filter_order)
+
     y = np.zeros(N)
     e_learning = np.zeros(N)
-    clean_ecg = np.zeros(N)
-    
-    for n in range(filter_order, N):
-        if SVM_condition:
-            u_n = ref_svm[n - filter_order : n][::-1]
-        else:
-            x_n = ref_x[n - filter_order : n][::-1]
-            y_n = ref_y[n - filter_order : n][::-1]
-            z_n = ref_z[n - filter_order : n][::-1]
-            u_n = np.concatenate((x_n, y_n, z_n))
-        
+    clean_ecg = np.copy(raw_ecg)
+
+    for n in range(filter_order - 1, N):
+        u_n = _regressor(ref, n, filter_order)
+
         y[n] = np.dot(w, u_n)
         e_learning[n] = lowpass_ecg[n] - y[n]
-        w = w + 2 * mu * e_learning[n] * u_n
+        w += 2 * mu * e_learning[n] * u_n
         clean_ecg[n] = raw_ecg[n] - y[n]
-        
+
     return clean_ecg
 
 
@@ -91,41 +118,38 @@ def rls_anc(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np
     clean_ecg : np.ndarray
         The denoised ECG signal after adaptive filtering.
     '''
-    
-    N = len(raw_ecg)
-    
-    if SVM_condition:
-        ref_svm = np.sqrt(ref_x**2 + ref_y**2 + ref_z**2)
-        num_channels = 1
-    else:
-        num_channels = 3
-        
-    M = num_channels * filter_order
+
+    raw_ecg = np.asarray(raw_ecg, dtype=np.float64).ravel()
+    ref = _build_reference_matrix(ref_x, ref_y, ref_z, SVM_condition)
+
+    N = raw_ecg.size
+    if ref.shape[1] != N:
+        raise ValueError("raw_ecg and the reference channels must have the same length")
+    if filter_order > N:
+        raise ValueError(f"filter_order ({filter_order}) exceeds signal length ({N})")
+    if not 0.0 < lam <= 1.0:
+        raise ValueError("lam must lie in (0, 1]")
+
+    M = ref.shape[0] * filter_order
     w = np.zeros(M)
     P = np.eye(M) * delta
-    
+
     y = np.zeros(N)
-    clean_ecg = np.zeros(N)
-    
-    for n in range(filter_order, N):
-        if SVM_condition:
-            u_n = ref_svm[n - filter_order : n][::-1]
-        else:
-            x_n = ref_x[n - filter_order : n][::-1]
-            y_n = ref_y[n - filter_order : n][::-1]
-            z_n = ref_z[n - filter_order : n][::-1]
-            u_n = np.concatenate((x_n, y_n, z_n))
-        
+    clean_ecg = np.copy(raw_ecg)
+
+    for n in range(filter_order - 1, N):
+        u_n = _regressor(ref, n, filter_order)
+
         y[n] = np.dot(w, u_n)
         clean_ecg[n] = raw_ecg[n] - y[n]
-        
-        Pi = np.dot(P, u_n)
-        k = Pi / (lam + np.dot(u_n, Pi))
-        w = w + k * clean_ecg[n]
-        P = (P - np.outer(k, Pi)) / lam
-        
-    return clean_ecg
 
+        Pi = P @ u_n
+        k = Pi / (lam + np.dot(u_n, Pi))
+        w += k * clean_ecg[n]
+        P = (P - np.outer(k, Pi)) / lam
+        P = 0.5 * (P + P.T)
+
+    return clean_ecg
 
 
 def blms_ecg_filter(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, L: int = 10, mu: float = 0.01, filter_order: int = 32, SVM_condition: bool = False) -> np.ndarray: #[4]
@@ -147,59 +171,45 @@ def blms_ecg_filter(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, r
     mu : float
         Step size.
     filter_order : int
-        Number of filter taps.
+        Number of filter taps per reference channel.
     SVM_condition : bool, optional
         If True, uses Signal Vector Magnitude (SVM) instead of 3 separate axes. Default is False.
+
     Returns
     -------
     e : np.ndarray
         The denoised ECG signal.
     '''
-    N = len(raw_ecg)
-    # Weights vector initialized to zeros
-    w = np.zeros(filter_order)
-    
-    e = np.zeros(N)
 
-    if SVM_condition:
-        ref_svm = np.sqrt(ref_x**2 + ref_y**2 + ref_z**2)
-    
-    # We process in blocks of size L
-    for k in range(0, N - filter_order, L):
-        # Accumulator for weight update: mu * sum(x(i) * e(i))
-        weight_update_sum = np.zeros(filter_order)
-        
-        # Process samples within the block
-        for i in range(L):
-            idx = k + i
-            if idx + filter_order >= N:
-                break
-                
-            # Current window of reference signal
-            if SVM_condition:
-                u_window = ref_svm[idx : idx + filter_order][::-1]
-            else:
-                x_window = ref_x[idx : idx + filter_order][::-1]
-                y_window = ref_y[idx : idx + filter_order][::-1]
-                z_window = ref_z[idx : idx + filter_order][::-1]
-                u_window = np.concatenate((x_window, y_window, z_window))
-            
-            # Output: y(k) = w^T * x
+    raw_ecg = np.asarray(raw_ecg, dtype=np.float64).ravel()
+    ref = _build_reference_matrix(ref_x, ref_y, ref_z, SVM_condition)
+
+    N = raw_ecg.size
+    if ref.shape[1] != N:
+        raise ValueError("raw_ecg and the reference channels must have the same length")
+    if filter_order > N:
+        raise ValueError(f"filter_order ({filter_order}) exceeds signal length ({N})")
+    if L < 1:
+        raise ValueError("L must be a positive integer")
+
+    w = np.zeros(ref.shape[0] * filter_order)
+    e = np.copy(raw_ecg)
+
+    start = filter_order - 1
+    for k in range(start, N, L):
+        weight_update_sum = np.zeros_like(w)
+
+        for idx in range(k, min(k + L, N)):
+            u_window = _regressor(ref, idx, filter_order)
+
             y = np.dot(w, u_window)
-            
-            # Error: e(k) = r(k) - y(k)
             e[idx] = raw_ecg[idx] - y
-            
-            # Accumulate: x(i) * e(i)
             weight_update_sum += u_window * e[idx]
-            
-        # Block weight update: w(k+1) = w(k) + mu * sum(...)
-        w = w + mu * weight_update_sum
-        
+
+        w += (mu / L) * weight_update_sum
+
     return e
 
-import numpy as np
-from typing import Tuple
 
 def hybrid_gall_kalman_ecg_filter(
     raw_ecg: np.ndarray, 
@@ -244,16 +254,23 @@ def hybrid_gall_kalman_ecg_filter(
     weight_history : np.ndarray
         Matrix of shape (N, 3) tracking the Kalman weights for X, Y, Z axes over time.
     '''
-    
-    N = len(raw_ecg)
+
+    raw_ecg = np.asarray(raw_ecg, dtype=np.float64).ravel()
+    ref = _build_reference_matrix(ref_x, ref_y, ref_z, SVM_condition=False)
+
+    N = raw_ecg.size
+    if ref.shape[1] != N:
+        raise ValueError("raw_ecg and the reference channels must have the same length")
+    if not 0.0 < lambda_K <= 1.0:
+        raise ValueError("lambda_K must lie in (0, 1]")
 
     
     #Parallel Noise Estimation (GALL)
     
     # Gall filter for each axis 
-    _, y_x, _, _ = gall_filter(x=ref_x, d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
-    _, y_y, _, _ = gall_filter(x=ref_y, d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
-    _, y_z, _, _ = gall_filter(x=ref_z, d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
+    _, y_x, _, _ = gall_filter(x=ref[0], d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
+    _, y_y, _, _ = gall_filter(x=ref[1], d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
+    _, y_z, _, _ = gall_filter(x=ref[2], d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
 
     
     #Unforced Kalman Filter Fusion
@@ -281,7 +298,7 @@ def hybrid_gall_kalman_ecg_filter(
         # KALMAN STATE UPDATE (RLS Logic)
         
         # Równania śledzące z zerowym szumem procesu (process noise = 0)
-        Pi = np.dot(K_mat, u_n)
+        Pi = K_mat @ u_n
         
         # Calculate Kalman Gain
         g_n = Pi / (lambda_K + np.dot(u_n, Pi))
@@ -291,8 +308,9 @@ def hybrid_gall_kalman_ecg_filter(
         
         # Update the correlation matrix K[n]
         K_mat = (K_mat - np.outer(g_n, Pi)) / lambda_K
+        K_mat = 0.5 * (K_mat + K_mat.T)
         
         # Save the weight history for analysis
         weight_history[n, :] = w
-        
+
     return clean_ecg, y_total, weight_history
