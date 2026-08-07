@@ -1,0 +1,23 @@
+* text=auto eol=lf
+
+*.py    text diff=python
+*.md    text
+*.txt   text
+*.yaml  text
+*.yml   text
+*.json  text
+*.csv   text
+*.ipynb text eol=lf
+
+*.npy   binary
+*.npz   binary
+*.mat   binary
+*.pt    binary
+*.pth   binary
+*.ckpt  binary
+*.dat   binary
+*.hea   text
+*.atr   binary
+*.png   binary
+*.pdf   binary
+*.xlsx  binary
