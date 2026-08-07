@@ -2,7 +2,7 @@
 Preprocessing ECG signal using signal from accelerometer as a input to adaptive filters to reduce motion artefacts 
 
 ## Acknowledgments
-The Python implementations of the signal denoising algorithms and deep learning architectures provided in this repository were developed with the analytical and coding assistance of the **Gemini Code 3** artificial intelligence model.
+The Python implementations of the signal denoising algorithms and deep learning architectures provided in this repository were developed with the analytical and coding assistance of the **Gemini Code 3** and **Claude Code** artificial intelligence model.
 
 ## Reference list
 
