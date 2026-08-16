@@ -1,7 +1,4 @@
 # Oświadczenie o wykorzystaniu narzędzi sztucznej inteligencji
-
-Treść identyczna z `docs/latex/oswiadczenie_ai.tex`. Przy zmianach aktualizuj oba pliki.
-
 ---
 
 Podczas przygotowania niniejszej pracy korzystano z narzędzi generatywnej sztucznej
