@@ -166,3 +166,30 @@ def validate_record(record: EcgRecord, expected_fs: Optional[float] = None) -> N
         raise ValueError(
             f"record '{record.record_id}': max amplitude {max_amplitude:.1f} mV exceeds "
             f"the physiological sanity limit of {MAX_PHYSIOLOGICAL_AMPLITUDE_MV} mV")
+
+
+def get_frequency_wfdb(record: EcgRecord) -> float:
+    """
+    Return the sampling frequency of a WFDB record, as declared in its header.
+
+    Parameters:
+        record (EcgRecord): The record to query.
+
+    Returns:
+        float: The sampling frequency in Hz.
+    """
+    return float(wfdb.rdheader(str(record.path)).fs)
+
+def get_frequency_neurobit(record_path: str) -> float:
+    """
+    Return the sampling frequency of a Neurobit record, based on timestamp inversion
+    Open .txt file x_data. Compute time difference and return the inversion of difference as frequency in Hz.
+    Parameters:
+        record_path (str): The path to the Neurobit record.
+    Returns:
+        float: The sampling frequency in Hz.
+    """
+    neurobit_record = np.loadtxt(record_path, delimiter=',', skiprows=0)
+    timestamps = neurobit_record[:, 0]
+    time_diff = timestamps[1]-timestamps[0]
+    return 1/time_diff
