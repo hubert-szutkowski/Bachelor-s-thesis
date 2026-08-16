@@ -6,11 +6,11 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
-from wavelet_model import WaveletCNNAutoencoder
-from sced_net_model import SCED_Net, ECGSignalProcessor
-from wavelet_transformers import CSTRANS_Denoising, ImprovedMSELoss
-from miemd_cnn import ECGD_Net_CNN
-from FSSTH_model import DeepCEDNet, stft_proxy_transform, stft_proxy_inverse
+from filters.wavelet_model import WaveletCNNAutoencoder
+from filters.sced_net_model import SCED_Net, ECGSignalProcessor
+from filters.wavelet_transformers import CSTRANS_Denoising, ImprovedMSELoss
+from filters.miemd_cnn import ECGD_Net_CNN
+from filters.FSSTH_model import DeepCEDNet, stft_proxy_transform, stft_proxy_inverse
 
 
 def report(name, expected, actual, params=None):

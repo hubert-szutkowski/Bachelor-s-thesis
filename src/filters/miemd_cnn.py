@@ -1,57 +1,14 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from PyEMD import EMD
+try:
+    from .signal_transforms import MIEMD_Filter
+except ImportError:
+    from signal_transforms import MIEMD_Filter
 
 #Citation [9]
 
 #MIEMD PRE-FILTERING
-
-
-class MIEMD_Filter:
-    '''
-    Empirical Mode Decomposition for initial ECG denoising.
-    Extracts IMFs, applies soft thresholding based on noise estimation, and reconstructs.
-    '''
-    def __init__(self, threshold_multiplier: float = 1.0):
-        self.emd = EMD()
-        self.threshold_multiplier = threshold_multiplier
-
-    def soft_thresholding(self, imf: np.ndarray, threshold: float) -> np.ndarray:
-        '''Applies soft thresholding to a single IMF.'''
-        return np.sign(imf) * np.maximum(np.abs(imf) - threshold, 0.0)
-
-    def process(self, ecg_signal: np.ndarray) -> np.ndarray:
-        '''
-        Decomposes signal, thresholds high-frequency IMFs, and reconstructs.
-        '''
-        # 1. Decomposition into IMFs
-        imfs = self.emd.emd(ecg_signal)
-        
-        if imfs.shape[0] == 0:
-            return ecg_signal
-            
-        processed_imfs = np.zeros_like(imfs)
-        
-        # 2. Noise Estimation & Thresholding
-        # Usually, the first IMF (IMF1) contains the most high-frequency noise.
-        # We estimate universal threshold based on the median absolute deviation (MAD) of IMF1
-        sigma = np.median(np.abs(imfs[0] - np.median(imfs[0]))) / 0.6745
-        threshold = self.threshold_multiplier * sigma * np.sqrt(2 * np.log(len(ecg_signal)))
-        
-        for i in range(imfs.shape[0]):
-            # Apply thresholding primarily to the first few IMFs (high frequency noise)
-            # and drop the last IMF to remove baseline wander (trend)
-            if i < 3: 
-                processed_imfs[i] = self.soft_thresholding(imfs[i], threshold)
-            elif i == imfs.shape[0] - 1:
-                processed_imfs[i] = np.zeros_like(imfs[i]) # Remove baseline wander
-            else:
-                processed_imfs[i] = imfs[i]
-                
-        # 3. Reconstruction
-        denoised_signal = np.sum(processed_imfs, axis=0)
-        return denoised_signal
 
 
 #DEEP CNN DENOISING
