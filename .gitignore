@@ -23,6 +23,7 @@ wheels/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
+data/files/
 *.egg
 MANIFEST
 .vscode/
@@ -31,11 +32,11 @@ MANIFEST
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
-
+tests/data_tests/fixtures/data
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
-
+docs/dziennik_ai.md
 # Unit test / coverage reports
 htmlcov/
 .tox/
@@ -220,3 +221,6 @@ __marimo__/
 # Training runs and cached tensors
 artifacts/
 *.npz
+
+# Dziennik wykorzystania AI - material roboczy, poza repozytorium
+docs/dziennik_ai.md
