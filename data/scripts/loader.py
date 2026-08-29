@@ -189,7 +189,7 @@ def get_frequency_neurobit(record_path: str) -> float:
     Returns:
         float: The sampling frequency in Hz.
     """
-    neurobit_record = np.loadtxt(record_path, delimiter=',', skiprows=0)
+    neurobit_record = np.loadtxt(record_path, delimiter=',', skiprows=1)
     timestamps = neurobit_record[:, 0]
     time_diff = timestamps[1]-timestamps[0]
     return 1/time_diff

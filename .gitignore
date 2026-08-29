@@ -39,6 +39,7 @@ pip-delete-this-directory.txt
 docs/dziennik_ai.md
 # Unit test / coverage reports
 htmlcov/
+notebooks_test/
 .tox/
 .nox/
 .coverage
