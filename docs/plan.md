@@ -56,20 +56,19 @@ i rezygnacji z segmentacji opartej na tabelach indeksów.
 
 Kolejność ma znaczenie: każdy punkt blokuje następne.
 
-### B.1 Commit zaległych plików `PILNE, 5 min`
+### ~~B.1 Commit zaległych plików~~ `zrobione`
 
-`splitting.py`, `windows.py` i ich testy są untracked. Cztery pliki poza kontrolą wersji.
+### ~~B.2 Uruchomić `tests/smoke_test.py`~~ `zrobione`
 
-### B.2 Uruchomić `tests/smoke_test.py` `PILNE`
+Cały zbiór przechodzi łącznie z `test_suite.py`, czyli **wszystkie pięć architektur
+wykonało przebieg w przód**. Do tego momentu wymiary były potwierdzone wyłącznie
+analitycznie. Warstwa modeli jest zweryfikowana empirycznie.
 
-**Żaden z pięciu modeli nigdy nie wykonał przebiegu w przód.** Wymiary zweryfikowane
-analitycznie, co nie wyłapie niezgodności typów ani urządzenia. Sandbox nie ma PyTorcha,
-więc to musi pójść na Twojej maszynie. Dopóki to nie przejdzie, cała warstwa uczenia jest
-niezweryfikowana.
+Stan: 199 testów w zbiorze podstawowym, 3 sieciowe, 7 sprawdzeń w `test_suite.py`.
 
-### B.3 Domknąć `requirements.txt`
+### ~~B.3 Domknąć `requirements.txt`~~ `zrobione`
 
-`neurokit2` bez wersji i bez znaku końca linii. Przypiąć wersję.
+`neurokit2==0.2.13`.
 
 ### B.4 Spiąć pipeline danych
 
@@ -200,7 +199,7 @@ implementacja FSSTH, albo jawna deklaracja zastępnika w metodologii. **Decyzja 
 
 | Ryzyko | Skutek | Zabezpieczenie |
 |---|---|---|
-| Modele nigdy nie uruchomione | odkrycie błędu późno | B.2, natychmiast |
+| ~~Modele nigdy nie uruchomione~~ | — | zamknięte, B.2 |
 | Panel SQI nagradza niszczenie sygnału | fałszywy ranking w pracy | B.6, B.7 |
 | Przesunięcie dziedziny MIT-BIH → neurobit | spadek jakości na danych własnych | C.2, C.5 |
 | Referencja ACC nie tłumaczy EMG izometrycznego | filtry adaptacyjne słabe w części scenariuszy | C.5, opisać zamiast ukrywać |
@@ -210,9 +209,8 @@ implementacja FSSTH, albo jawna deklaracja zastępnika w metodologii. **Decyzja 
 
 ## F. Sugerowana kolejność
 
-1. B.1, B.3 — porządki, kilkanaście minut.
-2. **B.2** — smoke test. Blokuje wszystko poniżej.
-3. B.4 — spięcie pipeline'u.
+1. ~~B.1, B.3, B.2~~ — zrobione.
+2. **B.4** — spięcie pipeline'u: eksport `.npz` → `ECGDenoisingDataset` → `Trainer`.
 4. C.5 — protokół pomiarowy; zaplanować i **nagrać** wcześnie, bo to jedyny element
    z opóźnieniem fizycznym.
 5. C.6 — synchronizacja, równolegle z nagraniami.
