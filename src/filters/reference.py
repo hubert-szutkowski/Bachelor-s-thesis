@@ -98,6 +98,35 @@ def standardise(reference: np.ndarray, eps: float = 1e-12) -> np.ndarray:
     return centred / np.maximum(scale, eps)
 
 
+def principal_channel(reference: np.ndarray) -> np.ndarray:
+    """
+    The single channel that carries most of the motion, as a linear combination.
+
+    Methods built around one reference, such as the Laguerre lattice, need the several
+    channels reduced to one. Three reductions are available and only one of them is sound.
+
+    Picking an axis is a choice made on the data unless the axis is fixed in advance, and
+    fixed in advance it is arbitrary. The magnitude of the acceleration looks principled
+    and is not: rectifying the channels destroys the linear relationship between the
+    reference and the artefact, which is the only relationship a linear canceller can act
+    on. Measured on synthetic material, the magnitude correlates with the channel that
+    generated the artefact at 0.015 and the lattice removes nothing, while the first
+    principal component correlates at 0.80 and recovers most of what the multichannel
+    methods recover.
+
+    The projection is linear, deterministic and computed from the reference alone, so it
+    keeps the choice on the reference side of the problem.
+    """
+    matrix = standardise(reference)
+    centred = matrix - matrix.mean(axis=1, keepdims=True)
+
+    # rozklad wedlug wartosci osobliwych macierzy (kanaly, probki): kolumny U to wagi
+    # przypisane kanalom, wiersze Vt to odpowiadajace im przebiegi w czasie. Pierwszy
+    # wiersz Vt jest wiec juz gotowa kombinacja liniowa kanalow, rownowazna U[:, 0] @ X.
+    _, _, components = np.linalg.svd(centred, full_matrices=False)
+    return standardise(components[0][None, :])
+
+
 def channel_correlations(reference: np.ndarray) -> np.ndarray:
     """Pearson correlation between every pair of reference channels."""
     reference = np.atleast_2d(np.asarray(reference, dtype=np.float64))

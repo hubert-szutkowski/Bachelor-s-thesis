@@ -68,6 +68,63 @@ static:
     max_imf: 6
     noise_components: 3
 
-adaptive: {}
+adaptive:
+
+  # Referencja jest standaryzowana do wariancji jednostkowej przed kazda z tych metod.
+  # Granica stabilnosci LMS to 0 < mu < 2/(M*Px), wiec mu dobrane dla akcelerometru
+  # podanego w jednostkach g rozbiega sie dla tego samego czujnika w zliczeniach ADC.
+  # Po ustaleniu mocy referencji mu jest wlasnoscia algorytmu, nie toru pomiarowego.
+  #
+  # svm: true zwija kazdy akcelerometr do modulu przyspieszenia, czyli 3 kanaly na 1.
+  # Sluzy do porownania "trzy osie kontra modul", nie jest wartoscia domyslna.
+
+  lms_anc:
+    mu: 0.001
+    filter_order: 5
+    lowpass_hz: 40.0          # sygnal prowadzacy dla adaptacji wag
+    lowpass_order: 4
+    standardise_reference: true
+    svm: false
+
+  rls_anc:
+    filter_order: 5
+    lam: 0.99                 # wspolczynnik zapominania
+    delta: 1.0                # inicjalizacja macierzy P; zbyt male przy referencji
+                              # blisko osobliwej prowadzi do rozbieznosci numerycznej
+    standardise_reference: true
+    svm: false
+
+  blms_anc:
+    L: 10                     # dlugosc bloku
+    mu: 0.01
+    filter_order: 32
+    standardise_reference: true
+    svm: false
+
+  # Krata Laguerrea przyjmuje jeden kanal odniesienia z konstrukcji.
+  #
+  # reduction = pca rzutuje kanaly na pierwsza skladowa glowna. Modul przyspieszenia
+  # (svm) wygladal na wybor bardziej naturalny, ale rektyfikacja niszczy zaleznosc
+  # liniowa, na ktorej dziala kompensator: zmierzona korelacja modulu z kanalem
+  # generujacym artefakt wyniosla 0.015 wobec 0.80 dla PC1, a filtr na module poprawil
+  # SNR o 0.04 dB wobec 8.5 dB dla PC1. Wartosc svm zostaje wylacznie do pokazania
+  # tego porownania w pracy.
+  gall_anc:
+    M: 5
+    beta: 1.0                 # wspolczynnik zapominania
+    alpha: 0.0                # alpha = 0 daje zwykla krate gradientowa
+    epsi: 0.001
+    reduction: pca
+    standardise_reference: true
+
+  gall_kalman:
+    M_gall: 5
+    beta_gall: 1.0
+    alpha_gall: 0.0
+    epsi_gall: 0.001
+    lambda_K: 0.99
+    delta_K: 1.0
+    standardise_reference: true
+    svm: false
 
 deep: {}
