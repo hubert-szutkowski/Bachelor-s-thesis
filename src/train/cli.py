@@ -13,15 +13,22 @@ Examples
 
 Dataset format
 --------------
-A single .npz holding:
+A single .npz as written by `scripts/export_dataset.py`, holding:
 
-    noisy    (n_segments, segment_length) float
-    clean    (n_segments, segment_length) float
-    fs       scalar, sampling frequency in Hz
-    r_peaks  object array of index vectors, only for models that need cardiac cycles
+    noisy           (n_segments, segment_length) float
+    clean           (n_segments, segment_length) float
+    fs              scalar, sampling frequency in Hz, required
+    patient         (n_segments,) patient label, optional but strongly preferred
+    r_peaks         concatenated beat indices, relative to the start of their segment
+    r_peaks_offset  (n_segments + 1,) where each segment begins in `r_peaks`
 
-The split is applied on segment index, not at random, so that segments coming from the same
-recording do not end up on both sides of the train / validation boundary.
+The training and validation parts are separated by patient whenever `patient` is present,
+so no recording contributes to both. Without those labels the split falls back to a
+contiguous cut on segment index, which is better than a shuffle but still lands inside
+whichever patient straddles it; the run says so on standard output when that happens.
+
+`fs` is required rather than defaulted. A wrong sampling frequency shifts every quantity
+expressed in hertz, and a default that happens to be wrong does so without raising.
 '''
 
 import argparse
@@ -32,6 +39,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from train.dataset_io import load_dataset, read_r_peaks, split_by_patient, split_indices
 from train.signal_selection import available_models, describe, select_signal, build_model
 from train.training import (
     ECGDenoisingDataset,
@@ -75,43 +83,6 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def load_dataset(path: str, limit: int = 0) -> dict:
-    payload = np.load(path, allow_pickle=True)
-
-    for key in ('noisy', 'clean'):
-        if key not in payload:
-            raise KeyError(f"'{key}' missing from {path}")
-
-    noisy = np.asarray(payload['noisy'], dtype=np.float64)
-    clean = np.asarray(payload['clean'], dtype=np.float64)
-    if noisy.shape != clean.shape:
-        raise ValueError(f'noisy {noisy.shape} and clean {clean.shape} must have the same shape')
-
-    r_peaks = payload['r_peaks'] if 'r_peaks' in payload else None
-    fs = int(payload['fs']) if 'fs' in payload else 250
-
-    if limit:
-        noisy, clean = noisy[:limit], clean[:limit]
-        if r_peaks is not None:
-            r_peaks = r_peaks[:limit]
-
-    return {'noisy': noisy, 'clean': clean, 'r_peaks': r_peaks, 'fs': fs}
-
-
-def split_indices(n: int, val_fraction: float) -> tuple:
-    '''
-    Contiguous split, not a random shuffle.
-
-    Consecutive segments of one recording are strongly correlated. Shuffling before the split
-    leaks the validation subject into training and produces optimistic metrics.
-    '''
-    if not 0.0 < val_fraction < 1.0:
-        raise ValueError('val_fraction must lie in (0, 1)')
-    cut = int(round(n * (1.0 - val_fraction)))
-    cut = max(1, min(cut, n - 1))
-    return np.arange(cut), np.arange(cut, n)
-
-
 def main(argv=None) -> int:
     args = parse_args(argv)
 
@@ -138,7 +109,16 @@ def main(argv=None) -> int:
               f"'{args.model}' expects {spec.segment_length}", file=sys.stderr)
         return 2
 
-    train_idx, val_idx = split_indices(len(payload['noisy']), args.val_fraction)
+    if payload['patient'] is not None:
+        train_idx, val_idx = split_by_patient(payload['patient'], args.val_fraction)
+        held = sorted(set(payload['patient'][val_idx].tolist()))
+        print(f'podzial po pacjentach | walidacja: {", ".join(held)} '
+              f'({len(val_idx)} z {len(payload["noisy"])} okien)')
+    else:
+        train_idx, val_idx = split_indices(len(payload['noisy']), args.val_fraction)
+        print('UWAGA: archiwum nie zawiera etykiet pacjenta, uzyto ciaglego podzialu '
+              'po indeksie segmentu; granica moze wypasc wewnatrz jednego nagrania')
+
     take = lambda arr, idx: None if arr is None else [arr[i] for i in idx]
 
     train_dataset = ECGDenoisingDataset(

@@ -70,13 +70,15 @@ Stan: 199 testów w zbiorze podstawowym, 3 sieciowe, 7 sprawdzeń w `test_suite.
 
 `neurokit2==0.2.13`.
 
-### B.4 Spiąć pipeline danych
+### ~~B.4 Spiąć pipeline danych~~ `zrobione` (A.6, A.7 z todo_notion)
 
-Generatory okien + mieszanie szumu + podział pacjentów → `ECGDenoisingDataset`.
-Dziś te elementy istnieją osobno i nie są połączone.
+Eksport `.npz` czytany przez `train/cli.py` bez pickle, z wymaganym `fs` i podziałem
+po pacjentach. Odczyt wydzielony do `src/train/dataset_io.py`, wolnego od PyTorcha, żeby
+kontrakt warstwy danych dało się testować wszędzie, gdzie działa numpy.
 
-Uwaga: szum mieszany **na całym rekordzie przed cięciem** przy ocenie; niezależne
-losowanie na okno wolno stosować wyłącznie w treningu.
+Niezmienniki w `tests/test_data.py`: brak NaN/Inf, brak okien stałych, zakres amplitudy,
+zgodność SNR przeliczonego z przebiegów, spójność `r_peaks` z offsetami, rozdzielność
+pacjentów. 247 testów w zbiorze.
 
 ### B.5 Panel SQI `nie istnieje w ogóle`
 

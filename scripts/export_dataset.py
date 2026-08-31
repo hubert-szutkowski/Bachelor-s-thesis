@@ -20,6 +20,15 @@ arrange it. Without that, a network could learn the particular waveform of a noi
 stretch it will meet again in validation, and the metric would improve for a reason that
 has nothing to do with denoising.
 
+Every archive carries the sampling frequency alongside the waveforms. `train/cli.py`
+falls back to 250 Hz when it is absent, which is silently wrong for a 360 Hz database and
+would shift every quantity expressed in hertz without raising anything.
+
+Beat positions are stored flat, as one concatenated vector of indices with a companion
+vector of offsets, rather than as an array of objects. An object array can only be read
+back with pickle enabled, which means executing whatever the file contains; the flat form
+carries the same information as plain integers.
+
 Noise is mixed per window rather than across the whole record. The windows are scored
 individually and never reassembled, so a window is the natural unit, and the noise record
 is in any case no longer than a recording.
@@ -343,7 +352,16 @@ def main(argv=None) -> int:
             data = build_split(part, loaded, noise_parts, snr_db, args, rng)
             path = args.out / archive_name(args.purpose, name, snr_db)
             saver = np.savez if args.no_compress else np.savez_compressed
-            saver(path, snr_db_requested=np.float32(snr_db), **data)
+            saver(path,
+                  snr_db_requested=np.float32(snr_db),
+                  fs=np.float64(args.target_fs or loaded[part[0]][2]),
+                  width=np.int64(args.width),
+                  overlap=np.float64(args.overlap),
+                  window_mode=np.asarray(args.window),
+                  convention=np.asarray(args.convention),
+                  lead=np.asarray(args.lead),
+                  noise=np.asarray(args.noise),
+                  **data)
 
             size = path.stat().st_size
             total_bytes += size
