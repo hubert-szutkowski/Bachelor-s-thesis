@@ -3,24 +3,34 @@ from typing import Tuple
 
 try:
     from .gall_filter import gall_filter
+    from .reference import reference_matrix
 except ImportError:
     from gall_filter import gall_filter
+    from reference import reference_matrix
 
 
-def _build_reference_matrix(ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, SVM_condition: bool) -> np.ndarray:
+def _resolve_reference(ref_x=None, ref_y=None, ref_z=None, reference=None,
+                       SVM_condition: bool = False) -> np.ndarray:
     '''
-    Stacks the accelerometer channels into a (num_channels, N) matrix.
-    If SVM_condition is True the three axes are collapsed into the Signal Vector Magnitude.
-    '''
-    ref_x = np.asarray(ref_x, dtype=np.float64).ravel()
-    ref_y = np.asarray(ref_y, dtype=np.float64).ravel()
-    ref_z = np.asarray(ref_z, dtype=np.float64).ravel()
-    if not (ref_x.size == ref_y.size == ref_z.size):
-        raise ValueError("ref_x, ref_y and ref_z must have the same length")
+    Reference channels as a (num_channels, N) matrix, from either calling convention.
 
-    if SVM_condition:
-        return np.sqrt(ref_x**2 + ref_y**2 + ref_z**2)[None, :]
-    return np.stack((ref_x, ref_y, ref_z), axis=0)
+    `reference` takes an array already in that layout and accepts any number of channels,
+    which is what two accelerometers require: an ECG is a difference of two potentials and
+    a motion artefact arises at the interface of each electrode, so one sensor can explain
+    only one of the two terms.
+
+    The three separate axes remain accepted so that existing callers keep working.
+    '''
+    if reference is not None:
+        if ref_x is not None or ref_y is not None or ref_z is not None:
+            raise ValueError('pass either reference or the separate axes, not both')
+        return reference_matrix(reference, svm=SVM_condition)
+
+    if ref_x is None or ref_y is None or ref_z is None:
+        raise ValueError('three axes are required when reference is not given')
+    return reference_matrix(np.asarray(ref_x).ravel(),
+                            np.asarray(ref_y).ravel(),
+                            np.asarray(ref_z).ravel(), svm=SVM_condition)
 
 
 def _regressor(ref: np.ndarray, n: int, filter_order: int) -> np.ndarray:
@@ -32,7 +42,7 @@ def _regressor(ref: np.ndarray, n: int, filter_order: int) -> np.ndarray:
     return window.reshape(-1)
 
 
-def modified_lms_anc(raw_ecg: np.ndarray, lowpass_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, mu: float = 0.001, filter_order: int = 5, SVM_condition: bool = False) -> np.ndarray: #[1]
+def modified_lms_anc(raw_ecg: np.ndarray, lowpass_ecg: np.ndarray, ref_x=None, ref_y=None, ref_z=None, mu: float = 0.001, filter_order: int = 5, SVM_condition: bool = False, reference=None) -> np.ndarray: #[1]
     '''
     Function to perform modified multi-reference LMS adaptive filtering.
     Uses a lowpass-filtered ECG for weight adaptation and raw ECG for final noise cancellation.
@@ -64,7 +74,7 @@ def modified_lms_anc(raw_ecg: np.ndarray, lowpass_ecg: np.ndarray, ref_x: np.nda
 
     raw_ecg = np.asarray(raw_ecg, dtype=np.float64).ravel()
     lowpass_ecg = np.asarray(lowpass_ecg, dtype=np.float64).ravel()
-    ref = _build_reference_matrix(ref_x, ref_y, ref_z, SVM_condition)
+    ref = _resolve_reference(ref_x, ref_y, ref_z, reference, SVM_condition)
 
     N = raw_ecg.size
     if lowpass_ecg.size != N or ref.shape[1] != N:
@@ -89,7 +99,7 @@ def modified_lms_anc(raw_ecg: np.ndarray, lowpass_ecg: np.ndarray, ref_x: np.nda
     return clean_ecg
 
 
-def rls_anc(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, filter_order: int = 5, lam: float = 0.99, delta: float = 1.0, SVM_condition: bool = False) -> np.ndarray: #[2]
+def rls_anc(raw_ecg: np.ndarray, ref_x=None, ref_y=None, ref_z=None, filter_order: int = 5, lam: float = 0.99, delta: float = 1.0, SVM_condition: bool = False, reference=None) -> np.ndarray: #[2]
     '''
     Function to perform multi-reference RLS adaptive filtering.
     Uses raw ECG and accelerometer data for noise cancellation.
@@ -120,7 +130,7 @@ def rls_anc(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np
     '''
 
     raw_ecg = np.asarray(raw_ecg, dtype=np.float64).ravel()
-    ref = _build_reference_matrix(ref_x, ref_y, ref_z, SVM_condition)
+    ref = _resolve_reference(ref_x, ref_y, ref_z, reference, SVM_condition)
 
     N = raw_ecg.size
     if ref.shape[1] != N:
@@ -152,7 +162,7 @@ def rls_anc(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np
     return clean_ecg
 
 
-def blms_ecg_filter(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, ref_z: np.ndarray, L: int = 10, mu: float = 0.01, filter_order: int = 32, SVM_condition: bool = False) -> np.ndarray: #[4]
+def blms_ecg_filter(raw_ecg: np.ndarray, ref_x=None, ref_y=None, ref_z=None, L: int = 10, mu: float = 0.01, filter_order: int = 32, SVM_condition: bool = False, reference=None) -> np.ndarray: #[4]
     '''
     Block Least Mean Square (BLMS) adaptive filter for ECG motion artifact removal.
 
@@ -182,7 +192,7 @@ def blms_ecg_filter(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, r
     '''
 
     raw_ecg = np.asarray(raw_ecg, dtype=np.float64).ravel()
-    ref = _build_reference_matrix(ref_x, ref_y, ref_z, SVM_condition)
+    ref = _resolve_reference(ref_x, ref_y, ref_z, reference, SVM_condition)
 
     N = raw_ecg.size
     if ref.shape[1] != N:
@@ -212,16 +222,17 @@ def blms_ecg_filter(raw_ecg: np.ndarray, ref_x: np.ndarray, ref_y: np.ndarray, r
 
 
 def hybrid_gall_kalman_ecg_filter(
-    raw_ecg: np.ndarray, 
-    ref_x: np.ndarray, 
-    ref_y: np.ndarray, 
-    ref_z: np.ndarray,
+    raw_ecg: np.ndarray,
+    ref_x=None,
+    ref_y=None,
+    ref_z=None,
     M_gall: int = 5,
     beta_gall: float = 1.0,
     alpha_gall: float = 0.0,
     epsi_gall: float = 1e-3,
     lambda_K: float = 0.99,
-    delta_K: float = 1.0
+    delta_K: float = 1.0,
+    reference=None
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]: #[3]
     '''
     Hybrid Filter Fusion: 3x Parallel GALL Filters combined by an Unforced Kalman Filter.
@@ -230,8 +241,10 @@ def hybrid_gall_kalman_ecg_filter(
     ----------
     raw_ecg : np.ndarray
         The noisy ECG signal (Primary input).
-    ref_x, ref_y, ref_z : np.ndarray
-        The reference signals from the 3-axis accelerometer.
+    ref_x, ref_y, ref_z : np.ndarray, optional
+        The reference signals from one 3-axis accelerometer.
+    reference : np.ndarray, optional
+        Reference channels of shape (num_channels, N), for any number of accelerometers.
     M_gall : int, optional
         Filter order for the local GALL filters. Default is 5.
     beta_gall : float, optional
@@ -252,11 +265,11 @@ def hybrid_gall_kalman_ecg_filter(
     y_total : np.ndarray
         The global noise estimate computed by the Kalman Filter.
     weight_history : np.ndarray
-        Matrix of shape (N, 3) tracking the Kalman weights for X, Y, Z axes over time.
+        Matrix of shape (N, num_channels) tracking the Kalman weights over time.
     '''
 
     raw_ecg = np.asarray(raw_ecg, dtype=np.float64).ravel()
-    ref = _build_reference_matrix(ref_x, ref_y, ref_z, SVM_condition=False)
+    ref = _resolve_reference(ref_x, ref_y, ref_z, reference, SVM_condition=False)
 
     N = raw_ecg.size
     if ref.shape[1] != N:
@@ -266,25 +279,28 @@ def hybrid_gall_kalman_ecg_filter(
 
     
     #Parallel Noise Estimation (GALL)
-    
-    # Gall filter for each axis 
-    _, y_x, _, _ = gall_filter(x=ref[0], d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
-    _, y_y, _, _ = gall_filter(x=ref[1], d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
-    _, y_z, _, _ = gall_filter(x=ref[2], d=raw_ecg, M=M_gall, beta=beta_gall, alpha=alpha_gall, epsi=epsi_gall)
 
-    
+    # One GALL filter per reference channel, however many there are
+    C = ref.shape[0]
+    estimates = np.empty((C, N))
+    for channel in range(C):
+        _, estimates[channel], _, _ = gall_filter(
+            x=ref[channel], d=raw_ecg, M=M_gall, beta=beta_gall,
+            alpha=alpha_gall, epsi=epsi_gall)
+
+
     #Unforced Kalman Filter Fusion
-    
-    w = np.ones(3) / 3.0         # State vector (Wagi dla X, Y, Z) 
-    K_mat = np.eye(3) * delta_K  # State error correlation matrix (K[n])
-    
+
+    w = np.ones(C) / C           # State vector, one weight per channel
+    K_mat = np.eye(C) * delta_K  # State error correlation matrix (K[n])
+
     y_total = np.zeros(N)
     clean_ecg = np.zeros(N)
-    weight_history = np.zeros((N, 3))
+    weight_history = np.zeros((N, C))
 
     for n in range(N):
-        # 1. Input vector u[n] containing the GALL outputs for X, Y, Z axes
-        u_n = np.array([y_x[n], y_y[n], y_z[n]])
+        # 1. Input vector u[n] holding the GALL output of every channel
+        u_n = estimates[:, n]
         
         # 2. Calculate the global noise estimate y_total[n] using the current weights w
         y_total[n] = np.dot(w, u_n)
