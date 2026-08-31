@@ -1,6 +1,14 @@
 """
 Reading of exported datasets and separation of their segments into training parts.
 
+An archive carries beat positions twice. `r_peaks` holds the reference annotations of the
+database and exists to score detection against; nothing may take it as an input.
+`r_peaks_detected` holds what the detector found on the noisy window, which is what a
+method would have outside a database, and is what the architectures built around cardiac
+cycles are given. Confusing the two would hand those architectures a segmentation no
+detector could produce, and the advantage would be largest exactly where the signal is
+worst.
+
 Kept clear of PyTorch on purpose. What an archive must contain, and how its segments may
 be divided without a patient appearing on both sides, is a property of the data rather
 than of the framework that will consume it; keeping the two apart lets the contract be
@@ -11,7 +19,7 @@ installed.
 import numpy as np
 
 
-def read_r_peaks(payload, n_segments: int):
+def read_r_peaks(payload, n_segments: int, key: str = 'r_peaks'):
     '''
     Beat positions in either of the two layouts an archive may carry.
 
@@ -20,18 +28,19 @@ def read_r_peaks(payload, n_segments: int):
     objects, which numpy can only read back with pickle enabled. The flat layout is
     preferred and read without pickle.
     '''
-    if 'r_peaks' not in payload:
+    if key not in payload:
         return None
 
-    if 'r_peaks_offset' in payload:
-        flat = np.asarray(payload['r_peaks'], dtype=np.int64)
-        offsets = np.asarray(payload['r_peaks_offset'], dtype=np.int64)
+    offset_key = f'{key}_offset'
+    if offset_key in payload:
+        flat = np.asarray(payload[key], dtype=np.int64)
+        offsets = np.asarray(payload[offset_key], dtype=np.int64)
         if offsets.size != n_segments + 1:
-            raise ValueError(f'r_peaks_offset holds {offsets.size} entries, '
+            raise ValueError(f'{offset_key} holds {offsets.size} entries, '
                              f'expected {n_segments + 1}')
         return [flat[offsets[i]:offsets[i + 1]] for i in range(n_segments)]
 
-    return list(payload['r_peaks'])
+    return list(payload[key])
 
 
 def load_dataset(path: str, limit: int = 0) -> dict:
@@ -51,6 +60,7 @@ def load_dataset(path: str, limit: int = 0) -> dict:
         raise ValueError(f'noisy {noisy.shape} and clean {clean.shape} must have the same shape')
 
     r_peaks = read_r_peaks(payload, noisy.shape[0])
+    r_peaks_detected = read_r_peaks(payload, noisy.shape[0], 'r_peaks_detected')
     patient = np.asarray(payload['patient']) if 'patient' in payload else None
 
     if 'fs' not in payload:
@@ -63,11 +73,13 @@ def load_dataset(path: str, limit: int = 0) -> dict:
         noisy, clean = noisy[:limit], clean[:limit]
         if r_peaks is not None:
             r_peaks = r_peaks[:limit]
+        if r_peaks_detected is not None:
+            r_peaks_detected = r_peaks_detected[:limit]
         if patient is not None:
             patient = patient[:limit]
 
     return {'noisy': noisy, 'clean': clean, 'r_peaks': r_peaks,
-            'patient': patient, 'fs': fs}
+            'r_peaks_detected': r_peaks_detected, 'patient': patient, 'fs': fs}
 
 
 def split_indices(n: int, val_fraction: float) -> tuple:

@@ -72,6 +72,12 @@ class FilterResult:
     `params` holds the values actually used, not the ones requested, and `code_version`
     the commit they were produced at. Between them a row of a results table can be traced
     back to the state of the repository that made it.
+
+    `covered_span` names the part of the window the method actually reconstructed, when
+    that is not the whole of it. A representation built from cardiac cycles reaches from
+    the first cycle to the last and leaves the samples before and after untouched; the
+    waveform returned is still of full length, with the input copied through outside the
+    span, and the span says where the comparison is meaningful.
     """
 
     signal: np.ndarray
@@ -81,6 +87,7 @@ class FilterResult:
     elapsed_s: float
     code_version: str
     n_reference_channels: int = 0
+    covered_span: Optional[tuple] = None
 
 
 @dataclass(frozen=True)
@@ -305,6 +312,7 @@ def apply_filter(name: str, signal: np.ndarray,
         elapsed_s=elapsed,
         code_version=code_version(),
         n_reference_channels=0 if context.reference is None else context.reference.shape[0],
+        covered_span=getattr(spec.fn, 'last_covered_span', None),
     )
 
 

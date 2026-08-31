@@ -12,6 +12,7 @@ The last section is the acceptance test for the export format: an archive writte
 its sampling frequency, and must be split by patient rather than by segment index.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -287,3 +288,81 @@ def test_every_exported_patient_matches_its_record(archives, wfdb_source):
     for record, patient in zip(data['record'], data['patient']):
         assert patient_of(str(record)) == str(patient)
     assert set(data['record'].tolist()) <= set(wfdb_source.with_lead)
+
+
+# --- beats: what is measured against, and what is consumed ---------------
+
+def test_the_archive_carries_both_annotated_and_detected_beats(archives):
+    """
+    Two different things that must never be confused.
+
+    Annotations are the truth detection is scored against. Detected beats are what a
+    method would have outside a database, and are what the cardiac cycle architectures are
+    given; Rasti-Meymandi and Ghaffari locate the beats after the noise is inserted for
+    exactly this reason.
+    """
+    data = read(archive(archives, -1.0))
+    for key in ('r_peaks', 'r_peaks_offset',
+                'r_peaks_detected', 'r_peaks_detected_offset'):
+        assert key in data, key
+
+
+def test_the_two_sets_of_beats_differ(archives):
+    """An identical pair would mean the detector never ran."""
+    data = read(archive(archives, -9.0))
+    annotated = data['r_peaks_offset']
+    detected = data['r_peaks_detected_offset']
+    assert annotated.shape == detected.shape
+    assert not np.array_equal(data['r_peaks'], data['r_peaks_detected']) or \
+           annotated[-1] != detected[-1]
+
+
+def test_detected_beats_fall_inside_their_window(archives):
+    data = read(archive(archives, -1.0))
+    width = data['clean'].shape[1]
+    offsets = data['r_peaks_detected_offset']
+    for index in range(offsets.size - 1):
+        peaks = data['r_peaks_detected'][offsets[index]:offsets[index + 1]]
+        assert np.all((peaks >= 0) & (peaks < width))
+
+
+def test_detection_degrades_as_the_ratio_falls(archives):
+    """
+    Which is the whole point of not handing the models the annotations.
+
+    At a low signal to noise ratio the detector loses beats and finds ones that are not
+    there, and a model segmented on annotations would never meet that.
+    """
+    counts = {}
+    for snr in REQUESTED_SNR:
+        data = read(archive(archives, snr))
+        annotated = np.diff(data['r_peaks_offset']).astype(float)
+        detected = np.diff(data['r_peaks_detected_offset']).astype(float)
+        counts[snr] = float(np.mean(np.abs(detected - annotated)))
+    assert counts[min(REQUESTED_SNR)] >= counts[max(REQUESTED_SNR)]
+
+
+def test_the_detector_is_recorded_in_the_archive_and_the_manifest(archives):
+    data = read(archive(archives, -1.0))
+    assert str(data['detector'])
+    manifest = json.loads((archives / 'model_manifest.json').read_text())
+    assert manifest['detector'] == str(data['detector'])
+
+
+def test_the_training_entry_point_reads_the_detected_beats(archives):
+    payload = load_dataset(str(archive(archives, -1.0)))
+    assert payload['r_peaks_detected'] is not None
+    assert len(payload['r_peaks_detected']) == payload['noisy'].shape[0]
+
+
+def test_detection_can_be_switched_off(wfdb_source, tmp_path):
+    """For a run that deliberately wants the annotations, and says so."""
+    out = tmp_path / 'nodetect'
+    assert export_main([
+        '--purpose', 'model', '--source', str(wfdb_source.root), '--out', str(out),
+        '--records', *wfdb_source.records, '--width', '1024', '--test-patients', '2',
+        '--folds', '3', '--snr', '3', '--splits', 'test', '--no-detect']) == 0
+
+    data = read(out / 'model_test_snrp3.npz')
+    assert data['r_peaks_detected'].size == 0
+    assert str(data['detector']) == 'none'

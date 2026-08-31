@@ -19,8 +19,10 @@ A single .npz as written by `scripts/export_dataset.py`, holding:
     clean           (n_segments, segment_length) float
     fs              scalar, sampling frequency in Hz, required
     patient         (n_segments,) patient label, optional but strongly preferred
-    r_peaks         concatenated beat indices, relative to the start of their segment
+    r_peaks         reference beat indices from the annotations, for scoring detection
     r_peaks_offset  (n_segments + 1,) where each segment begins in `r_peaks`
+    r_peaks_detected         beats found on the noisy window, which is what models consume
+    r_peaks_detected_offset  (n_segments + 1,)
 
 The training and validation parts are separated by patient whenever `patient` is present,
 so no recording contributes to both. Without those labels the split falls back to a
@@ -101,9 +103,16 @@ def main(argv=None) -> int:
     payload = load_dataset(args.data, limit=args.limit)
     spec = select_signal(args.model, fs=payload['fs'])
 
-    if spec.requires_r_peaks and payload['r_peaks'] is None:
-        print(f"model '{args.model}' needs r_peaks in the dataset", file=sys.stderr)
+    # modele dostaja zalamki wykryte na sygnale zaszumionym, nie adnotacje: adnotacje sa
+    # prawda odniesienia dla F1 i podanie ich modelowi byloby przewaga wyroczni
+    beats = (payload['r_peaks'] if payload['r_peaks_detected'] is None
+             else payload['r_peaks_detected'])
+    if spec.requires_r_peaks and beats is None:
+        print(f"model '{args.model}' needs beat positions in the dataset", file=sys.stderr)
         return 2
+    if spec.requires_r_peaks and payload['r_peaks_detected'] is None:
+        print('UWAGA: archiwum nie zawiera detekcji na sygnale zaszumionym; uzyto '
+              'adnotacji, co daje modelowi segmentacje niedostepna poza baza')
     if spec.segment_length is not None and payload['noisy'].shape[1] != spec.segment_length:
         print(f"segment length mismatch: dataset has {payload['noisy'].shape[1]}, "
               f"'{args.model}' expects {spec.segment_length}", file=sys.stderr)
@@ -123,10 +132,10 @@ def main(argv=None) -> int:
 
     train_dataset = ECGDenoisingDataset(
         take(payload['noisy'], train_idx), take(payload['clean'], train_idx),
-        spec, r_peaks=take(payload['r_peaks'], train_idx))
+        spec, r_peaks=take(beats, train_idx))
     val_dataset = ECGDenoisingDataset(
         take(payload['noisy'], val_idx), take(payload['clean'], val_idx),
-        spec, r_peaks=take(payload['r_peaks'], val_idx))
+        spec, r_peaks=take(beats, val_idx))
 
     config = TrainerConfig(
         epochs=args.epochs,

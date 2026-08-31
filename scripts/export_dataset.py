@@ -24,10 +24,22 @@ Every archive carries the sampling frequency alongside the waveforms. `train/cli
 falls back to 250 Hz when it is absent, which is silently wrong for a 360 Hz database and
 would shift every quantity expressed in hertz without raising anything.
 
-Beat positions are stored flat, as one concatenated vector of indices with a companion
-vector of offsets, rather than as an array of objects. An object array can only be read
-back with pickle enabled, which means executing whatever the file contains; the flat form
-carries the same information as plain integers.
+Beat positions are stored twice, and the difference between the two is the point.
+
+`r_peaks` comes from the reference annotations of the database and is the truth against
+which detection is scored; nothing may consume it as an input.
+
+`r_peaks_detected` comes from running the detector on the noisy window, which is what a
+method would have in the field, and is what the architectures built around cardiac cycles
+are given. Rasti-Meymandi and Ghaffari state the same choice for SCED-Net: the beats are
+located after the noise is inserted. Feeding annotated beats instead would hand that
+architecture a segmentation no detector could produce at a low signal to noise ratio, and
+the advantage would grow exactly where the comparison matters most.
+
+Both are stored flat, as one concatenated vector of indices with a companion vector of
+offsets, rather than as an array of objects. An object array can only be read back with
+pickle enabled, which means executing whatever the file contains; the flat form carries
+the same information as plain integers.
 
 Noise is mixed per window rather than across the whole record. The windows are scored
 individually and never reassembled, so a window is the natural unit, and the noise record
@@ -71,6 +83,7 @@ from preparing.noise_mixing import (
     sample_noise_window,
 )
 from preparing.normalization import frequency_resampler, resampled_length
+from preparing.qrs_detection import DEFAULT_METHOD, detect_qrs
 from preparing.splitting import group_kfold, holdout_split, patient_of
 from preparing.windows import STATIC_FILTER_WIDTH, beat_windows, count_windows, sliding_windows
 
@@ -105,6 +118,10 @@ def parse_args(argv=None):
     parser.add_argument('--records', nargs='+', default=list(MITDB_RECORDS))
     parser.add_argument('--lead', default='MLII',
                         help='signal name to export; records without it are skipped')
+    parser.add_argument('--detector', default=DEFAULT_METHOD,
+                        help='detector run on the noisy window, as the methods will see it')
+    parser.add_argument('--no-detect', action='store_true',
+                        help='skip detection; beat based methods then have only annotations')
     parser.add_argument('--noise', default='em', choices=['em', 'ma', 'bw'])
 
     parser.add_argument('--width', type=int, default=None)
@@ -219,6 +236,7 @@ def build_split(records, loaded, noise_parts, snr_db, args, rng) -> dict:
     record_ids, patients, starts = [], [], []
     gains, realised = [], []
     peaks_flat, peaks_offset = [], [0]
+    detected_flat, detected_offset = [], [0]
 
     for record_id in records:
         signal, r_peaks, _ = loaded[record_id]
@@ -239,6 +257,17 @@ def build_split(records, loaded, noise_parts, snr_db, args, rng) -> dict:
                                      args.target_fs or loaded[record_id][2], snr_db,
                                      convention=args.convention)
 
+            if args.no_detect:
+                detected = np.empty(0, dtype=np.int32)
+            else:
+                try:
+                    detected = detect_qrs(noisy, args.target_fs or loaded[record_id][2],
+                                          method=args.detector).astype(np.int32)
+                except Exception:                                       # noqa: BLE001
+                    # okno zbyt zaszumione, zeby detektor cokolwiek zwrocil; pusty wektor
+                    # jest uczciwa informacja, a nie bledem do ukrycia
+                    detected = np.empty(0, dtype=np.int32)
+
             clean_windows.append(clean.astype(np.float32))
             noisy_windows.append(noisy.astype(np.float32))
             record_ids.append(record_id)
@@ -248,6 +277,8 @@ def build_split(records, loaded, noise_parts, snr_db, args, rng) -> dict:
             realised.append(meta['snr_db_power_ratio'])
             peaks_flat.append(inside.astype(np.int32))
             peaks_offset.append(peaks_offset[-1] + inside.size)
+            detected_flat.append(detected)
+            detected_offset.append(detected_offset[-1] + detected.size)
 
     if not clean_windows:
         raise ValueError('no window was produced; check --width against the record length')
@@ -262,6 +293,9 @@ def build_split(records, loaded, noise_parts, snr_db, args, rng) -> dict:
         'snr_db_realised': np.asarray(realised, dtype=np.float32),
         'r_peaks': np.concatenate(peaks_flat) if peaks_flat else np.empty(0, np.int32),
         'r_peaks_offset': np.asarray(peaks_offset, dtype=np.int64),
+        'r_peaks_detected': (np.concatenate(detected_flat) if detected_flat
+                             else np.empty(0, np.int32)),
+        'r_peaks_detected_offset': np.asarray(detected_offset, dtype=np.int64),
     }
 
 
@@ -322,6 +356,7 @@ def main(argv=None) -> int:
         'purpose': args.purpose, 'width': args.width, 'overlap': args.overlap,
         'window': args.window, 'convention': args.convention, 'noise': args.noise,
         'lead': args.lead, 'seed': args.seed, 'snr_db': args.snr,
+        'detector': 'none' if args.no_detect else args.detector,
         'target_fs': args.target_fs, 'skipped': skipped,
         'split': split, 'archives': [],
     }
@@ -361,6 +396,7 @@ def main(argv=None) -> int:
                   convention=np.asarray(args.convention),
                   lead=np.asarray(args.lead),
                   noise=np.asarray(args.noise),
+                  detector=np.asarray('none' if args.no_detect else args.detector),
                   **data)
 
             size = path.stat().st_size

@@ -127,4 +127,32 @@ adaptive:
     standardise_reference: true
     svm: false
 
-deep: {}
+deep:
+
+  # Sieci nie maja parametrow strojonych tutaj - ich zachowanie okresla checkpoint.
+  # Zapisane sa tylko warunki uruchomienia. Sciezka do wag idzie przez FilterContext,
+  # nie przez ten plik, bo zalezy od przebiegu treningu, nie od metody.
+  #
+  # batch_size dotyczy kawalkow jednego okna, nie okien. Okno 4096 dzieli sie na 4 czesci
+  # po 1024, 2 po 2048 albo 5 po 992, wiec wartosc powyzej kilkunastu nic nie zmienia
+  # poza zajetoscia pamieci.
+
+  wavelet_cnn:
+    batch_size: 32
+    device: auto
+
+  sced_net:
+    batch_size: 32
+    device: auto
+
+  cstrans:
+    batch_size: 32
+    device: auto
+
+  ecgd_net:
+    batch_size: 32
+    device: auto
+
+  deepcednet:
+    batch_size: 32
+    device: auto
