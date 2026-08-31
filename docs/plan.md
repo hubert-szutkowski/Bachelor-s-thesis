@@ -168,12 +168,18 @@ Eksport neurobita ma `NumSig=1` — akcelerometru w nim nie ma. Dwa niezależne 
 brak wspólnej podstawy czasu. Potrzebne zdarzenie widoczne w obu torach (stuknięcie
 w czujnik na starcie). Przy nagraniach kilkuminutowych dryf jest pomijalny.
 
-### C.7 Decyzja o częstotliwości próbkowania
+### ~~C.7 Decyzja o częstotliwości próbkowania~~ `rozstrzygnięte`
 
-Neurobit pracuje przy 250 Hz (sprawdzić, czy Optima 4 pozwala na 360). Przy `LP 100 Hz`
-nadpróbkowanie do 360 nie wnosi informacji. Alternatywa: trenować przy 250 Hz i zdecymować
-MIT-BIH (25/36). Uczciwsze wobec pomiaru, gorsze dla porównywalności z literaturą.
-**Decyzja otwarta.**
+**360 Hz wszędzie.** Neurobit zostanie ustawiony na tę samą wartość co MIT-BIH, więc
+resampling sygnału EKG odpada, a porównanie jest bezpośrednie. Konsekwencje:
+
+- akcelerometry też muszą pracować przy 360 Hz, żeby referencja zgadzała się z EKG
+  próbka w próbkę;
+- filtr antyaliasingowy toru analogowego akcelerometru dobrać wyraźnie poniżej
+  częstotliwości Nyquista 180 Hz; treść artefaktu ruchowego mieści się poniżej 50 Hz,
+  więc pasmo rzędu 50-100 Hz jest właściwe;
+- prefiltr neurobita `LP 100 Hz` przy 360 Hz ma większy zapas do Nyquista niż miał
+  przy 250 Hz.
 
 ### C.8 Nagrania z przedramienia jako przypadek skrajny
 

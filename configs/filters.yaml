@@ -1,0 +1,73 @@
+# Parametry metod filtracji.
+#
+# Ten plik jest jedynym miejscem, w ktorym parametry sa dobierane, a `git log` na nim jest
+# historia strojenia. Wartosci rozstrzygniete dla konkretnego wywolania trafiaja do
+# `FilterResult.params`, wiec wynik sprzed miesiaca daje sie odtworzyc nawet po zmianie
+# tego pliku.
+#
+# Stroic wylacznie na materiale development. Parametr dobrany pod pacjentow testowych
+# zamienia ich w zbior uczacy i uniewaznia caly wynik.
+#
+# Caly material pracy jest probkowany 360 Hz: MIT-BIH z definicji, a neurobit ustawiony
+# na te sama wartosc, zeby porownanie bylo bezposrednie.
+#
+# Okna czasowe podane sa mimo to w milisekundach. Dlugosc 25 ms mowi, co filtr robi -
+# wygladza polowe zespolu QRS - podczas gdy dlugosc dziewieciu probek mowi tylko, jak
+# zostal zaimplementowany. Przy ewentualnej zmianie czestotliwosci zaden parametr nie
+# wymaga korekty.
+
+static:
+
+  # Pasmo 0.5-40 Hz obejmuje zespol QRS (5-20 Hz) oraz zalamki P i T (0.5-10 Hz),
+  # a odcina wedrowanie linii izoelektrycznej i zaklocenie sieciowe.
+  #
+  # Dlugosc filtru wynika z pasma przejsciowego, nie z wygody: df = 3.3 * fs / N dla okna
+  # Hamminga. Przy 101 wspolczynnikach df wynosi 11.8 Hz i dolna granica 0.5 Hz jest
+  # nieosiagalna - filtr przepuszcza wedrowanie linii, ktore mial odciac. Zmierzone
+  # residuum wzgledem sygnalu czystego: 101 wsp. -> 0.211, 601 -> 0.052, 901 -> 0.047,
+  # IIR rzedu 4 -> 0.045. 1700 ms daje 613 wspolczynnikow przy 360 Hz, czyli df = 1.94 Hz.
+  #
+  # Filtracja zerofazowa wymaga ponad 3*N probek, wiec ta dlugosc zaklada okno 4096.
+  fir_bandpass:
+    low_hz: 0.5
+    high_hz: 40.0
+    numtaps_ms: 1700.0
+    window: hamming
+    zero_phase: true
+
+  iir_bandpass:
+    order: 4
+    low_hz: 0.5
+    high_hz: 40.0
+    ftype: butter
+    zero_phase: true
+
+  # 25 ms to okolo polowa czasu trwania zespolu QRS; dluzsze okno zaczyna go splaszczac.
+  moving_average:
+    window_ms: 25.0
+
+  # Mediana znosi zaklocenia impulsowe bez rozmycia zbocza, wiec moze byc dluzsza.
+  moving_median:
+    window_ms: 60.0
+
+  wavelet_denoising:
+    wavelet: db4
+    level: 5
+    mode: soft
+
+  # Poziom 9 jest gorna granica zadania; faktyczny wynika z dlugosci okna i jest
+  # raportowany. Przy oknie 4096 i 360 Hz wychodzi poziom 8, czyli ciecie ponizej 0.70 Hz.
+  # max_cut_hz zabezpiecza przed uruchomieniem tej metody na oknie zbyt krotkim, gdzie
+  # ciecie wpadloby w zalamki P i T.
+  wavelet_baseline:
+    wavelet: db8
+    level: 9
+    max_cut_hz: 1.0
+
+  emd_denoising:
+    max_imf: 6
+    noise_components: 3
+
+adaptive: {}
+
+deep: {}
