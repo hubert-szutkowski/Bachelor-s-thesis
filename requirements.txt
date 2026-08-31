@@ -19,3 +19,4 @@ wfdb==4.3.1
 soundfile==0.14.0
 pytest==9.1.1
 neurokit2==0.2.13
+pyyaml==6.0.3
