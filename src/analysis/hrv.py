@@ -265,6 +265,8 @@ def hrv_panel(peaks: Sequence[int], fs: float, correct: bool = True,
 
     Takes the beats of a whole recording, never of a window: a window of 4096 samples at
     360 Hz spans 11.4 seconds, which supports one time domain index and no spectral one.
+
+    The set of indices and their definitions follow the review of Pham et al. 2021 [7]_.
     """
     rr_raw = rr_intervals(peaks, fs)
     burden = artefact_fraction(rr_raw)
@@ -308,9 +310,15 @@ def hrv_agreement(reference_peaks: Sequence[int], estimate_peaks: Sequence[int],
     and a filter that leaves the beats where they were will show none, which is a
     distinction no waveform metric makes.
 
+    Ren et al. 2023 [8]_ evaluate denoising methods by exactly this route, and
+    Cilhoroz et al. 2020 [4]_ show that a device agreeing on the mean rate can still
+    disagree on the beat to beat indices, which is why agreement is measured per index
+    rather than on the rate.
+
     References
     ----------
-    Eguchi & Aoki 2023 [5]_; Sauerbier et al. 2024 [14]_.
+    Eguchi & Aoki 2023 [5]_; Sauerbier et al. 2024 [14]_; Ren et al. 2023 [8]_;
+    Cilhoroz et al. 2020 [4]_; Pham et al. 2021 [7]_.
     """
     reference = hrv_panel(reference_peaks, fs, **kwargs)
     estimate = hrv_panel(estimate_peaks, fs, **kwargs)

@@ -196,7 +196,9 @@ def score_waveform(signal: np.ndarray, reference: Sequence[int], fs: float,
 
     The detector is the same one used everywhere else in this work, so that a difference
     between two methods is a difference between the waveforms they produced rather than
-    between the instruments used to read them.
+    between the instruments used to read them. Holding it fixed is what the denoising
+    literature does when detection is used as the downstream measure
+    (Sharma & Sharma 2017 [8]_; Yan et al. 2025 [14]_).
     """
     detected = detect_qrs(signal, fs) if method is None else detect_qrs(signal, fs,
                                                                         method=method)

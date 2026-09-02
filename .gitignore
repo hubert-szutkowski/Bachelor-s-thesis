@@ -45,6 +45,7 @@ notebooks_test/
 .nox/
 .coverage
 .coverage.*
+claude_memory/
 .cache
 nosetests.xml
 coverage.xml

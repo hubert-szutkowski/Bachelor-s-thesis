@@ -270,6 +270,9 @@ def validate_panel(windows, fs: float, snr_values, **kwargs) -> dict:
 
     Run on the synthetic material, where both are known, before any index is read on the
     wearable recordings. An index that fails here has no standing there.
+
+    Kuetche et al. 2023 [2]_ report that no single index holds across noise types, so the
+    panel is validated index by index rather than as a whole.
     """
     values = {field: [] for field in SQI_FIELDS}
     for window in windows:

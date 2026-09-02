@@ -167,6 +167,10 @@ def check_monotonicity(clean: np.ndarray, noise: np.ndarray, fs: float,
     The ratio has to rise, the difference and the errors have to fall, the correlation has
     to rise. A metric that moves the other way is inverted somewhere, and the ordering is
     the only thing being tested here, not any particular value.
+
+    The grid of levels is the one the denoising literature evaluates on, so a metric that
+    breaks monotonicity here would also have broken it in those papers
+    (Hesar & Mohebbi 2017 [6]_; Mohguen & Bouguezel 2021 [10]_).
     """
     try:
         from preparing.noise_mixing import mix_at_snr
@@ -201,9 +205,10 @@ def metric_concordance(scores: dict, higher_is_better: Optional[dict] = None) ->
     """
     How far the metrics agree on an ordering of the methods.
 
-    Shi et al. 2021 report a case where one method wins on the root mean square error and
-    another on the improvement in the ratio, over the same material, which is why a single
-    metric cannot be trusted to rank. Pairs falling below `CONCORDANCE_WARNING` are named
+    Shi et al. 2021 [12]_ report a case where one method wins on the root mean square
+    error and another on the improvement in the ratio, over the same material, which is why
+    a single metric cannot be trusted to rank; Sraitih & Jabrane 2021 [13]_ and
+    Chatterjee et al. 2020 [3]_ reach the same conclusion from a wider comparison. Pairs falling below `CONCORDANCE_WARNING` are named
     so that a disagreement is reported rather than settled by whichever metric happened to
     be put first in the table.
 
@@ -228,7 +233,8 @@ def metric_concordance(scores: dict, higher_is_better: Optional[dict] = None) ->
     for metric in metrics:
         values = np.array([scores[metric][method] for method in methods], dtype=np.float64)
         # kazda metryka sprowadzona do wspolnego kierunku, zeby korelacja mierzyla
-        # zgodnosc uporzadkowania, a nie przypadkowy znak definicji
+        # zgodnosc uporzadkowania, a nie przypadkowy znak definicji. Kierunki za
+        # zestawieniem metryk u Malghana i Hoty 2020 [9]_
         ranked[metric] = values if direction.get(metric, True) else -values
 
     pairs, disputed = {}, []
@@ -295,6 +301,10 @@ def run_sanity_suite(fs: float = 360.0, **kwargs) -> dict:
 
     Run before a results table is produced and again whenever a metric is changed. The
     report is a record: a table produced after a failed suite has no standing.
+
+    The suite covers what can be checked without data. It does not replace looking at the
+    waveform and its spectrum, which the literature asks for alongside the numbers
+    (Ahmad et al. 2025 [1]_; Chatterjee et al. 2020 [3]_).
     """
     rng = np.random.default_rng(0)
     n = 4096
