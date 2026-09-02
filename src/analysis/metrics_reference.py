@@ -63,6 +63,12 @@ References
        Corrupted with White Gaussian Noise Using Wavelet Packet Transform and
        Soft-Thresholding. International Journal of Computing and Digital Systems.
        https://doi.org/10.12785/ijcds/150196
+.. [10] Berntsen, J., & Brandt, A. (2021). Periodogram ratio based automatic detection and
+        removal of harmonics in time or angle domain. Mechanical Systems and Signal
+        Processing, 165, 108310. https://doi.org/10.1016/j.ymssp.2021.108310
+.. [11] Moshrefi, A., Aghababa, H., & Shoaei, O. (2021). Employing the Empirical Mode
+        Decomposition to Denoise the Random Telegraph Noise. International Journal of
+        Engineering, 34, 90-96. https://doi.org/10.5829/ije.2021.34.01a.11
 """
 
 import math
@@ -72,6 +78,20 @@ import numpy as np
 
 METRIC_FIELDS = ('snr_out', 'snr_in', 'snr_improvement',
                  'mse', 'rmse', 'mae', 'prd', 'prd1', 'correlation')
+
+# Referencja stala nie ma skladowej zmiennej, wiec kazda metryka normowana energia po
+# usunieciu sredniej jest dla niej nieokreslona. Porownanie z zerem tu nie wystarcza:
+# odjecie sredniej od stalej zostawia reszte rzedu epsilona maszynowego, ktora jest
+# niezerowa, a iloraz przez nia daje liczbe skonczona i calkowicie bezsensowna.
+# Prog jest wzgledny wobec amplitudy sygnalu, wiec nie zalezy od jednostki.
+DEGENERATE_TOLERANCE = 1e-12
+
+
+def _degenerate(power: float, samples: int, scale: float) -> bool:
+    """Czy energia jest nieodroznialna od zera w skali tego sygnalu."""
+    if scale == 0.0:
+        return True
+    return power <= samples * (DEGENERATE_TOLERANCE * scale) ** 2
 
 
 def _aligned(first: np.ndarray, second: np.ndarray, span: Optional[tuple] = None) -> tuple:
@@ -99,6 +119,16 @@ def snr(clean: np.ndarray, estimate: np.ndarray, span: Optional[tuple] = None) -
 
     Infinite for a perfect reconstruction, which is a fact rather than a failure and is
     reported as such; an aggregate that meets one has a problem the aggregate should show.
+
+    **Computed on total energy, not on energy after the mean is removed.** The distinction
+    only shows on a degenerate input, and it has to be declared because the two conventions
+    disagree there: a constant reference has no alternating component, so a mean removed
+    ratio is undefined for it, while this one returns a finite number that means nothing.
+    A constant reference is not an electrocardiogram and does not arise in this work, but
+    the value would be read as ordinary if the convention were left unstated
+    (Berntsen & Brandt 2021 [10]_ exclude the direct current component from ratio analysis
+    for the same reason). `prd` with `remove_mean` uses the other convention and returns
+    not a number on that input.
 
     .. math:: \\mathrm{SNR} = 10 \\log_{10}
               \\frac{\\sum_n x_n^2}{\\sum_n (x_n - \\hat{x}_n)^2}
@@ -186,20 +216,38 @@ def prd(clean: np.ndarray, estimate: np.ndarray, span: Optional[tuple] = None,
     wrong conclusions; PRD1 removes the mean from both signals first and measures the
     alternating component alone (Chen et al. 2019 [4]_).
 
+    Two edge cases are settled by convention rather than by measurement. A residual of
+    exactly zero is an exact reconstruction and returns zero percent, not not a number
+    (Moshrefi et al. 2021 [11]_; Berntsen & Brandt 2021 [10]_ treat a vanishing difference
+    as perfect removal). A reference with no alternating component makes the mean removed
+    form undefined and returns not a number; comparing its energy against zero is not
+    enough, since subtracting the mean from a constant leaves a residue of the order of
+    machine epsilon whose reciprocal is finite and meaningless.
+
     References
     ----------
-    Blanco-Velasco et al. 2005 [1]_; Chen et al. 2019 [4]_; Elgendi et al. 2017 [5]_.
+    Blanco-Velasco et al. 2005 [1]_; Chen et al. 2019 [4]_; Elgendi et al. 2017 [5]_;
+    Berntsen & Brandt 2021 [10]_; Moshrefi et al. 2021 [11]_.
     """
     clean, estimate = _aligned(clean, estimate, span)
+    scale = float(np.max(np.abs(clean)))
 
     if remove_mean:
         clean = clean - clean.mean()
         estimate = estimate - estimate.mean()
 
     power = float(np.sum(clean ** 2))
-    if power == 0.0:
+    residual = float(np.sum((clean - estimate) ** 2))
+
+    # Referencja bez skladowej zmiennej: iloraz nie jest okreslony. Dotyczy wylacznie
+    # postaci PRD1, bo tylko ona normuje energia po usunieciu sredniej.
+    if _degenerate(power, clean.size, scale):
         return float('nan')
-    return 100.0 * math.sqrt(float(np.sum((clean - estimate) ** 2)) / power)
+    # Reszta zerowa to rekonstrukcja dokladna, czyli zero procent bledu, a nie awaria
+    # numeryczna. Wynika wprost z definicji i jest zwracana jako wartosc, nie jako nan.
+    if residual == 0.0:
+        return 0.0
+    return 100.0 * math.sqrt(residual / power)
 
 
 def correlation(clean: np.ndarray, estimate: np.ndarray,
@@ -210,10 +258,22 @@ def correlation(clean: np.ndarray, estimate: np.ndarray,
     Blind to scale, so it separates a method that lost the shape of the beat from one that
     only lost its amplitude; the ratio metrics cannot tell those apart. Reported here as a
     supplement, since the surveyed comparisons do not use it as a primary criterion.
+
+    A waveform without an alternating component has no correlation to measure and returns
+    not a number. The comparison has to be relative for the same reason it does in `prd`:
+    the standard deviation of a constant is of the order of machine epsilon rather than
+    exactly zero, so a test against zero lets the case through and `numpy` then reports a
+    correlation of about 1e-16, which reads as an ordinary result of no correlation instead
+    of as the absence of one.
     """
     clean, estimate = _aligned(clean, estimate, span)
-    if clean.std() == 0.0 or estimate.std() == 0.0:
-        return float('nan')
+
+    for waveform in (clean, estimate):
+        centred = waveform - waveform.mean()
+        scale = float(np.max(np.abs(waveform)))
+        if _degenerate(float(np.sum(centred ** 2)), centred.size, scale):
+            return float('nan')
+
     return float(np.corrcoef(clean, estimate)[0, 1])
 
 
