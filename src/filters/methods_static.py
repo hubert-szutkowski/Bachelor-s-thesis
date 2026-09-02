@@ -53,6 +53,11 @@ except ImportError:
 
 DEFAULT_MAX_CUT_HZ = 1.0
 
+# Metody kontrolne. Nie sa filtrami i nie naleza do rankingu; stoja w tabeli po to, zeby
+# panel dalo sie sfalsyfikowac. Baza bez filtracji jest w literaturze standardem, filtr
+# celowo niszczacy jest rzadki i wymaga uzasadnienia jako kontrola falsyfikujaca.
+CONTROL_METHODS = ('no_filtering', 'destructive_bandpass')
+
 # Szerokosc pasma przejsciowego okna FIR wyraza sie jako df = k * fs / N.
 # Wspolczynniki k dla typowych okien.
 TRANSITION_CONSTANT = {'rectangular': 0.9, 'boxcar': 0.9, 'hann': 3.1, 'hanning': 3.1,
@@ -161,6 +166,37 @@ def _emd_denoising(signal, context, max_imf=6, noise_components=3, **_):
     return emd_ecg_denoising(signal, max_imf=max_imf, noise_components=noise_components)
 
 
+# --- metody kontrolne -----------------------------------------------------
+
+def _no_filtering(signal, context, **_):
+    """
+    The lower bound: the input, unchanged.
+
+    Scoring the unfiltered signal against the clean one is common practice and anchors
+    every other number in the table (Venkata et al. 2026; Shi et al. 2021). A method that
+    fails to beat it has done nothing, and without the row that has to be worked out from
+    a value in a different table.
+    """
+    return signal
+
+
+def _destructive_bandpass(signal, context, low_hz=5.0, high_hz=15.0, order=4, **_):
+    """
+    A filter over the QRS band alone, included so that the quality panel can be falsified.
+
+    It removes the P and T waves and drives the spectral quality index towards one,
+    because that index measures the share of the spectrum lying in exactly this band. If
+    it ranks highly on the panel, the panel has been shown to reward the removal of signal
+    rather than the removal of noise, and that is a demonstration rather than a suspicion.
+
+    Published comparisons report methods that damaged the morphology, but as outcomes
+    rather than as controls inserted on purpose, so this row is a step beyond typical
+    practice and is justified as a falsification control.
+    """
+    return iir_filter(signal, order=order, Wn=[low_hz, high_hz], btype='bandpass',
+                      fs=context.fs, ftype='butter', zero_phase=True)
+
+
 # --- registration --------------------------------------------------------
 
 def register_static_filters() -> list:
@@ -180,6 +216,27 @@ def register_static_filters() -> list:
          'usuniecie wedrowania linii izoelektrycznej przez odrzucenie aproksymacji'),
         ('emd_denoising', _emd_denoising,
          'empiryczna dekompozycja modalna z odrzuceniem pierwszych skladowych'),
+    ]
+
+    registered = []
+    for name, fn, description in entries:
+        register(name, 'static', fn, description=description)
+        registered.append(name)
+    return registered
+
+
+def register_control_methods() -> list:
+    """
+    Registers the two controls, which are not filters and do not belong to the ranking.
+
+    Kept separate from `register_static_filters` so that a table can list them apart and
+    an aggregate can exclude them without a list of names written out somewhere else.
+    """
+    entries = [
+        ('no_filtering', _no_filtering,
+         'KONTROLA: brak filtracji, dolna granica odniesienia'),
+        ('destructive_bandpass', _destructive_bandpass,
+         'KONTROLA: filtr 5-15 Hz niszczacy zalamki P i T, do falsyfikacji panelu SQI'),
     ]
 
     registered = []

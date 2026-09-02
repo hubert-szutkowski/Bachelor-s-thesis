@@ -158,10 +158,19 @@ def detection_metrics(detected: np.ndarray, reference: np.ndarray, fs: float,
 
     sensitivity = tp / (tp + fn) if tp + fn else float('nan')
     predictivity = tp / (tp + fp) if tp + fp else float('nan')
-    if np.isnan(sensitivity) or np.isnan(predictivity) or sensitivity + predictivity == 0:
-        f1 = float('nan')
+
+    # Rozroznienie miedzy calkowita porazka a brakiem danych. Detektor, ktory nie trafil
+    # w zaden zaanotowany zespol, ma czulosc i predykcyjnosc rowne zeru, wiec jego F1
+    # wynosi zero - a nie "nieznane". Zwrocenie nan sprawiloby, ze taka metoda wypadlaby
+    # z agregacji jako wartosc nieskonczona zamiast obnizyc srednia, czyli metoda, ktora
+    # zawiodla najmocniej, znikalaby z tabeli.
+    if not (tp + fn) and not (tp + fp):
+        f1 = float('nan')                       # nie bylo ani adnotacji, ani detekcji
+    elif tp == 0:
+        f1 = 0.0                                # byly, i nic sie nie zgadza
     else:
         f1 = 2.0 * sensitivity * predictivity / (sensitivity + predictivity)
+
     der = (fp + fn) / (tp + fn) if tp + fn else float('nan')
 
     offsets_ms = match['offsets'] / fs * 1e3

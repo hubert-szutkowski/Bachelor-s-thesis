@@ -68,6 +68,20 @@ static:
     max_imf: 6
     noise_components: 3
 
+  # --- metody kontrolne ---------------------------------------------------
+  #
+  # Nie naleza do rankingu. Baza bez filtracji zakotwicza kazda inna liczbe w tabeli;
+  # filtr niszczacy sluzy do sfalsyfikowania panelu SQI. Jesli filtr niszczacy wygrywa
+  # na ktoryms wskazniku, ten wskaznik zostal pokazany jako nagradzajacy usuwanie
+  # sygnalu, a nie usuwanie szumu.
+
+  no_filtering: {}
+
+  destructive_bandpass:
+    low_hz: 5.0          # dokladnie pasmo, ktore mierzy pSQI
+    high_hz: 15.0
+    order: 4
+
 adaptive:
 
   # Referencja jest standaryzowana do wariancji jednostkowej przed kazda z tych metod.

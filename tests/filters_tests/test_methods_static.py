@@ -20,7 +20,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
-from filters.methods_static import baseline_cut_hz, register_static_filters
+from filters.methods_static import (
+    CONTROL_METHODS,
+    baseline_cut_hz,
+    register_control_methods,
+    register_static_filters,
+)
 from filters.registry import (
     FilterContext,
     apply_filter,
@@ -42,6 +47,7 @@ def registry():
         unregister(name)
     reset_config()
     names = register_static_filters()
+    register_control_methods()
     load_config(CONFIG)
     yield names
     for name in list(available_filters()):
@@ -70,8 +76,11 @@ def context():
 # --- the whole family ----------------------------------------------------
 
 def test_exactly_seven_static_methods_are_registered(registry):
+    """Kontrole licza sie osobno: nie sa metodami filtracji i nie wchodza do rankingu."""
     assert len(registry) == 7
-    assert available_filters('static') == sorted(registry)
+    ranked = [name for name in available_filters('static')
+              if name not in CONTROL_METHODS]
+    assert ranked == sorted(registry)
 
 
 def test_every_method_runs_and_returns_the_input_length(registry, context):
@@ -265,11 +274,13 @@ def test_wavelet_denoising_clamps_the_level_instead_of_failing(registry):
 # --- parameters ----------------------------------------------------------
 
 def test_the_shipped_configuration_covers_every_static_method(registry):
+    """Kontrole rowniez, mimo ze do rankingu nie naleza - ida przez ten sam tor."""
     import yaml
 
     with CONFIG.open('r', encoding='utf-8') as handle:
         loaded = yaml.safe_load(handle)
-    assert set(loaded['static']) == set(registry)
+    assert set(loaded['static']) == set(available_filters('static'))
+    assert set(registry) | set(CONTROL_METHODS) == set(loaded['static'])
 
 
 def test_a_call_argument_changes_the_result(registry, context):
@@ -359,3 +370,52 @@ def test_a_shorter_filter_fits_the_shorter_window(registry):
     noisy, _ = ecg(n=1024)
     result = apply_filter('fir_bandpass', noisy, FilterContext(fs=FS), numtaps_ms=500.0)
     assert result.signal.shape == noisy.shape
+
+
+# --- kontrole ------------------------------------------------------------
+
+def test_the_two_controls_are_registered_alongside_the_static_methods(registry):
+    """
+    Nie sa metodami filtracji i nie wchodza do rankingu.
+
+    Ida jednak przez ten sam tor co reszta, bo ich sens polega na tym, ze zostaly
+    zmierzone dokladnie tak samo jak metody, ktore maja falsyfikowac.
+    """
+    for name in CONTROL_METHODS:
+        assert name in available_filters('static')
+        assert name not in registry
+
+
+def test_the_unfiltered_control_passes_the_waveform_through(registry, context):
+    noisy, _ = ecg()
+    result = apply_filter('no_filtering', noisy, context)
+    assert np.array_equal(result.signal, noisy)
+
+
+def test_the_unfiltered_control_is_the_lower_bound_of_the_table(registry, context):
+    """Kazda metoda, ktora wypada gorzej, pogorszyla sygnal zamiast go poprawic."""
+    noisy, clean = ecg()
+    passed = apply_filter('no_filtering', noisy, context).signal
+    filtered = apply_filter('iir_bandpass', noisy, context).signal
+
+    from analysis.metrics_reference import snr
+    assert snr(clean, filtered) > snr(clean, passed)
+
+
+def test_the_destructive_control_removes_the_band_outside_five_to_fifteen_hertz(
+        registry, context):
+    from scipy.signal import welch
+
+    noisy, _ = ecg()
+    damaged = apply_filter('destructive_bandpass', noisy, context).signal
+
+    freqs, power = welch(damaged, fs=FS, nperseg=1024)
+    inside = power[(freqs >= 5.0) & (freqs <= 15.0)].sum()
+    assert inside / power.sum() > 0.9
+
+
+def test_the_destructive_control_is_marked_as_a_control_in_its_description(registry):
+    from filters.registry import describe
+
+    for name in CONTROL_METHODS:
+        assert 'KONTROLA' in describe(name)
