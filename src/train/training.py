@@ -196,27 +196,24 @@ def build_criterion(name: str = 'improved_mse', **kwargs) -> nn.Module:
 
 def time_domain_metrics(reference: np.ndarray, estimate: np.ndarray) -> dict:
     '''
-    Hard metrics on the time-domain waveform.
+    Hard metrics on the time-domain waveform, for reporting during training.
 
-    SNR  = 10 log10( sum(x^2) / sum((x - x_hat)^2) )      [dB]
-    PRD  = 100 sqrt( sum((x - x_hat)^2) / sum(x^2) )      [percent]
+    A thin wrapper over `analysis.metrics_reference`, which holds the definitions and the
+    reasons behind them. Keeping one implementation means a convention settled once cannot
+    drift between the training log and the results table.
     '''
-    reference = np.asarray(reference, dtype=np.float64).ravel()
-    estimate = np.asarray(estimate, dtype=np.float64).ravel()
+    try:
+        from analysis.metrics_reference import (
+            mean_squared_error, prd as _prd, root_mean_squared_error, snr as _snr)
+    except ImportError:
+        from ..analysis.metrics_reference import (
+            mean_squared_error, prd as _prd, root_mean_squared_error, snr as _snr)
 
-    n = min(reference.size, estimate.size)
-    reference, estimate = reference[:n], estimate[:n]
-
-    residual = reference - estimate
-    signal_power = float(np.sum(reference ** 2))
-    residual_power = float(np.sum(residual ** 2))
-
-    mse = residual_power / max(n, 1)
     return {
-        'snr': 10.0 * math.log10(signal_power / residual_power) if residual_power > 0 and signal_power > 0 else float('nan'),
-        'mse': mse,
-        'rmse': math.sqrt(mse),
-        'prd': 100.0 * math.sqrt(residual_power / signal_power) if signal_power > 0 else float('nan'),
+        'snr': _snr(reference, estimate),
+        'mse': mean_squared_error(reference, estimate),
+        'rmse': root_mean_squared_error(reference, estimate),
+        'prd': _prd(reference, estimate),
     }
 
 
